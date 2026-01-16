@@ -1,8 +1,4 @@
-# 🎵 DECIFRAÊ - Conversor de Áudio para Cifras
-
-Sistema completo para conversão automática de arquivos de áudio em cifras musicais usando IA.
-
-## 📁 Estrutura do Projeto
+# 📁 Estrutura do Projeto
 
 ```
 Decifrae-main1/
