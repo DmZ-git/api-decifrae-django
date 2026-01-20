@@ -7,8 +7,8 @@ except Exception:
     pass
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-zq09*_713w)va0c-$d3o^km*-vl@5x1!4!3-81(su!%3oivl@k')
-DEBUG = True  # Ativar para desenvolvimento
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,*').split(',')
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'  # Ativar para desenvolvimento
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,*.render.com,*').split(',')
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
