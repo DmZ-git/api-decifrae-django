@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.contrib.auth.models import User
 from .models import AudioFile, Transcription, Playlist, ProcessingJob
 
 
@@ -79,3 +80,67 @@ class ProcessingJobSerializer(serializers.ModelSerializer):
         if value < 0 or value > 100:
             raise serializers.ValidationError("Progresso deve estar entre 0 e 100.")
         return value
+
+
+# ==========================================
+# Serializers de Autenticação
+# ==========================================
+
+class UserSerializer(serializers.ModelSerializer):
+    """
+    Serializador para dados básicos do usuário
+    """
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'first_name', 'last_name']
+        read_only_fields = ['id']
+
+
+class LoginSerializer(serializers.Serializer):
+    """
+    Serializador para login com email e senha
+    """
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=6)
+
+
+class SignUpSerializer(serializers.Serializer):
+    """
+    Serializador para criação de nova conta
+    """
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True, min_length=8)
+    first_name = serializers.CharField(max_length=150, required=False)
+    last_name = serializers.CharField(max_length=150, required=False)
+
+    def validate(self, data):
+        if data['password'] != data['password_confirm']:
+            raise serializers.ValidationError({"password": "As senhas não coincidem."})
+        return data
+
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Já existe um usuário com este email.")
+        return value
+
+
+class TokenResponseSerializer(serializers.Serializer):
+    """
+    Serializador para resposta de token de autenticação
+    """
+    access_token = serializers.CharField()
+    refresh_token = serializers.CharField(required=False)
+    user = UserSerializer()
+    expires_in = serializers.IntegerField()
+
+
+class AuthResponseSerializer(serializers.Serializer):
+    """
+    Resposta genérica de autenticação
+    """
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    user = UserSerializer(required=False)
+    token = serializers.CharField(required=False)
+    error = serializers.CharField(required=False)

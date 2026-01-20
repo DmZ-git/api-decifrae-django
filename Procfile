@@ -1,1 +1,2 @@
-web: gunicorn api.core.wsgi:application --bind 0.0.0.0:${PORT:-8000}
+web: gunicorn api.core.wsgi
+worker: celery -A api worker -l info
