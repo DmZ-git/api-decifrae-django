@@ -47,8 +47,8 @@ def me_view(request):
     )
 
 
-@api_view(['GET'])
-
+@method_decorator(csrf_exempt, name='dispatch')
+class AudioFileViewSet(viewsets.ModelViewSet):
     """
     ViewSet para operações CRUD de AudioFile
     """
