@@ -6,6 +6,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.models import User
+from django.http import FileResponse, StreamingHttpResponse, JsonResponse
+from django.core.files.storage import default_storage
 from .models import AudioFile, Transcription, Playlist, ProcessingJob
 from .serializers import (
     AudioFileSerializer, TranscriptionSerializer, PlaylistSerializer, 
@@ -14,6 +16,10 @@ from .serializers import (
 from .supabase_client import SupabaseClient
 import uuid
 import os
+import requests
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -144,6 +150,80 @@ class AudioFileViewSet(viewsets.ModelViewSet):
             serializer.save(user=self.request.user)
         else:
             serializer.save()
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Retrieve audio file metadata OR stream the audio file.
+        
+        Query parameters:
+        - download=true: Stream the audio file for download
+        - download=false or omitted: Return JSON metadata
+        """
+        audio_file = self.get_object()
+        download = request.query_params.get('download', 'false').lower() == 'true'
+        
+        if not download:
+            # Return metadata as JSON
+            serializer = self.get_serializer(audio_file)
+            return Response(serializer.data)
+        
+        # Stream the audio file from Supabase
+        try:
+            file_url = audio_file.file_url
+            
+            if not file_url:
+                return Response(
+                    {'error': 'URL do arquivo não disponível'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Stream the file from Supabase with proper headers
+            response = requests.get(file_url, stream=True, timeout=30)
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch audio from Supabase: {response.status_code}")
+                return Response(
+                    {'error': f'Erro ao recuperar arquivo: {response.status_code}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+            
+            # Create streaming response with proper headers for audio
+            def generate_chunks():
+                try:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            yield chunk
+                except Exception as e:
+                    logger.error(f"Error streaming audio: {str(e)}")
+            
+            streaming_response = StreamingHttpResponse(
+                generate_chunks(),
+                content_type=response.headers.get('Content-Type', 'audio/mpeg')
+            )
+            
+            # Set proper headers for audio streaming
+            streaming_response['Content-Length'] = response.headers.get('Content-Length', '')
+            streaming_response['Accept-Ranges'] = 'bytes'
+            streaming_response['Cache-Control'] = 'public, max-age=3600'
+            
+            # Set filename for download
+            file_name = audio_file.file_name or f"audio{audio_file.format}"
+            streaming_response['Content-Disposition'] = f'inline; filename="{file_name}"'
+            
+            return streaming_response
+            
+        except requests.Timeout:
+            logger.error("Timeout while fetching audio from Supabase")
+            return Response(
+                {'error': 'Tempo limite excedido ao recuperar arquivo'},
+                status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
+        except Exception as e:
+            logger.error(f"Error in audio retrieve: {str(e)}")
+            return Response(
+                {'error': f'Erro ao recuperar arquivo: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class TranscriptionViewSet(viewsets.ModelViewSet):

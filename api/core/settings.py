@@ -92,3 +92,33 @@ CELERY_TIMEZONE = 'America/Sao_Paulo'
 
 # Audio Processing Settings
 AUDIO_MAX_SIZE_MB = int(os.environ.get('AUDIO_MAX_SIZE_MB', 50))
+# Streaming and File Response Settings
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
+
+# WSGI streaming support for large files
+WSGI_APPLICATION = 'api.core.wsgi.application'
+
+# HTTP Response Settings
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
+        },
+    },
+}
