@@ -6,12 +6,10 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
 from .models import AudioFile, Transcription, Playlist, ProcessingJob
 from .serializers import (
     AudioFileSerializer, TranscriptionSerializer, PlaylistSerializer, 
-    ProcessingJobSerializer, LoginSerializer, SignUpSerializer, 
-    UserSerializer, AuthResponseSerializer
+    ProcessingJobSerializer, UserSerializer
 )
 from .supabase_client import SupabaseClient
 import uuid
@@ -22,213 +20,13 @@ import os
 # Endpoints de Autenticação
 # ==========================================
 
-@api_view(['POST'])
-@csrf_exempt
-def login_view(request):
-    """
-    Endpoint para login do usuário
-    
-    POST /api/auth/login/
-    {
-        "email": "user@example.com",
-        "password": "password123"
-    }
-    """
-    serializer = LoginSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(
-            {
-                'success': False,
-                'error': serializer.errors
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    email = serializer.validated_data['email']
-    password = serializer.validated_data['password']
-
-    try:
-        # Procura usuário por email
-        user = User.objects.get(email=email)
-        
-        # Autentica com username e senha
-        authenticated_user = authenticate(username=user.username, password=password)
-        
-        if authenticated_user is None:
-            return Response(
-                {
-                    'success': False,
-                    'error': 'Email ou senha inválidos'
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        
-        # Gera token de sessão
-        from django.contrib.auth.models import update_last_login
-        from rest_framework.authtoken.models import Token
-        
-        # Cria ou obter token
-        token, _ = Token.objects.get_or_create(user=authenticated_user)
-        update_last_login(None, authenticated_user)
-        
-        user_serializer = UserSerializer(authenticated_user)
-        
-        return Response(
-            {
-                'success': True,
-                'message': 'Login realizado com sucesso',
-                'user': user_serializer.data,
-                'token': token.key,
-                'expires_in': 3600  # 1 hora
-            },
-            status=status.HTTP_200_OK
-        )
-        
-    except User.DoesNotExist:
-        return Response(
-            {
-                'success': False,
-                'error': 'Email ou senha inválidos'
-            },
-            status=status.HTTP_401_UNAUTHORIZED
-        )
-    except Exception as e:
-        return Response(
-            {
-                'success': False,
-                'error': f'Erro ao fazer login: {str(e)}'
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-@api_view(['POST'])
-@csrf_exempt
-def signup_view(request):
-    """
-    Endpoint para criar nova conta
-    
-    POST /api/auth/signup/
-    {
-        "email": "newuser@example.com",
-        "password": "securepassword123",
-        "password_confirm": "securepassword123",
-        "first_name": "João",
-        "last_name": "Silva"
-    }
-    """
-    serializer = SignUpSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(
-            {
-                'success': False,
-                'error': serializer.errors
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    try:
-        email = serializer.validated_data['email']
-        password = serializer.validated_data['password']
-        first_name = serializer.validated_data.get('first_name', '')
-        last_name = serializer.validated_data.get('last_name', '')
-
-        # Cria novo usuário
-        username = email.split('@')[0]  # Usa email como base
-        
-        # Se username existe, adiciona números
-        if User.objects.filter(username=username).exists():
-            counter = 1
-            while User.objects.filter(username=f"{username}{counter}").exists():
-                counter += 1
-            username = f"{username}{counter}"
-
-        user = User.objects.create_user(
-            username=username,
-            email=email,
-            password=password,
-            first_name=first_name,
-            last_name=last_name
-        )
-        
-        # Gera token
-        from rest_framework.authtoken.models import Token
-        token, _ = Token.objects.get_or_create(user=user)
-        
-        user_serializer = UserSerializer(user)
-        
-        return Response(
-            {
-                'success': True,
-                'message': 'Conta criada com sucesso',
-                'user': user_serializer.data,
-                'token': token.key,
-                'expires_in': 3600
-            },
-            status=status.HTTP_201_CREATED
-        )
-        
-    except Exception as e:
-        return Response(
-            {
-                'success': False,
-                'error': f'Erro ao criar conta: {str(e)}'
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
-@api_view(['POST'])
-def logout_view(request):
-    """
-    Endpoint para logout do usuário
-    
-    POST /api/auth/logout/
-    Headers: Authorization: Token YOUR_TOKEN
-    """
-    try:
-        if not request.user.is_authenticated:
-            return Response(
-                {
-                    'success': False,
-                    'error': 'Usuário não autenticado'
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        
-        # Remove token
-        from rest_framework.authtoken.models import Token
-        try:
-            token = Token.objects.get(user=request.user)
-            token.delete()
-        except Token.DoesNotExist:
-            pass
-        
-        return Response(
-            {
-                'success': True,
-                'message': 'Logout realizado com sucesso'
-            },
-            status=status.HTTP_200_OK
-        )
-        
-    except Exception as e:
-        return Response(
-            {
-                'success': False,
-                'error': f'Erro ao fazer logout: {str(e)}'
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
 @api_view(['GET'])
 def me_view(request):
     """
     Endpoint para obter dados do usuário autenticado
     
     GET /api/auth/me/
-    Headers: Authorization: Token YOUR_TOKEN
+    Headers: Authorization: Bearer <SUPABASE_JWT_TOKEN>
     """
     if not request.user.is_authenticated:
         return Response(
@@ -249,54 +47,8 @@ def me_view(request):
     )
 
 
-@api_view(['POST'])
-def verify_token_view(request):
-    """
-    Endpoint para verificar se um token é válido
-    
-    POST /api/auth/verify-token/
-    {
-        "token": "YOUR_TOKEN"
-    }
-    """
-    token = request.data.get('token')
-    
-    if not token:
-        return Response(
-            {
-                'success': False,
-                'error': 'Token não fornecido'
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    try:
-        from rest_framework.authtoken.models import Token
-        token_obj = Token.objects.get(key=token)
-        user_serializer = UserSerializer(token_obj.user)
-        
-        return Response(
-            {
-                'success': True,
-                'valid': True,
-                'user': user_serializer.data
-            },
-            status=status.HTTP_200_OK
-        )
-    except Token.DoesNotExist:
-        return Response(
-            {
-                'success': False,
-                'valid': False,
-                'error': 'Token inválido'
-            },
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+@api_view(['GET'])
 
-
-@method_decorator(csrf_exempt, name='dispatch')
-
-class AudioFileViewSet(viewsets.ModelViewSet):
     """
     ViewSet para operações CRUD de AudioFile
     """
