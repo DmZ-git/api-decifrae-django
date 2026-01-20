@@ -8,7 +8,24 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-zq09*_713w)va0c-$d3o^km*-vl@5x1!4!3-81(su!%3oivl@k')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'  # Ativar para desenvolvimento
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,*.render.com,*').split(',')
+
+# ALLOWED_HOSTS Configuration
+_allowed_hosts = [
+    'localhost',
+    '127.0.0.1',
+    'api-decifrae.onrender.com',  # Render production domain
+    'api-decifrae-*.onrender.com',  # Render preview deployments
+]
+
+# Add from environment variable if provided
+if os.environ.get('ALLOWED_HOSTS'):
+    _allowed_hosts.extend(os.environ.get('ALLOWED_HOSTS', '').split(','))
+
+# In production, allow all for Render (trust X-Forwarded-For headers)
+if not DEBUG:
+    _allowed_hosts.append('*')
+
+ALLOWED_HOSTS = _allowed_hosts
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -59,13 +76,7 @@ REST_FRAMEWORK = {
     ],
 }
 
-# Desabilitar CSRF para APIs
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:8080',
-    'http://127.0.0.1:8080',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-]
+# Default Field
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS Configuration
@@ -101,8 +112,13 @@ WSGI_APPLICATION = 'api.core.wsgi.application'
 
 # HTTP Response Settings
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-
-# Logging configuration
+CSRF_TRUSTED_ORIGINS = [
+    'https://api-decifrae.onrender.com',
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+]
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
