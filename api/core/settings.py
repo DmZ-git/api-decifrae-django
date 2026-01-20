@@ -79,11 +79,14 @@ REST_FRAMEWORK = {
 # Default Field
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS Configuration
-CORS_ALLOWED_ORIGINS = os.environ.get(
-    'CORS_ALLOWED_ORIGINS',
-    'http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080'
-).split(',')
+# CORS Configuration - FIX 403 ERROR
+CORS_ALLOWED_ORIGINS = [
+    'https://front-decifrae.vercel.app',  # Frontend em produção
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Permitir todas as origens em desenvolvimento
 
@@ -112,13 +115,25 @@ WSGI_APPLICATION = 'api.core.wsgi.application'
 
 # HTTP Response Settings
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# CSRF Configuration
 CSRF_TRUSTED_ORIGINS = [
+    'https://front-decifrae.vercel.app',  # Frontend em produção
     'https://api-decifrae.onrender.com',
     'http://localhost:8080',
     'http://127.0.0.1:8080',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
 ]
+
+# Disable CSRF for API endpoints (handled by authentication)
+CSRF_EXEMPT_PATHS = [
+    '/api/audio/',
+    '/api/transcriptions/',
+    '/api/playlists/',
+    '/api/jobs/',
+]
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,

@@ -89,3 +89,26 @@ class SupabaseAuthMiddleware:
             request.user = AnonymousUser()
             request.supabase_user = None
             request.supabase_user_id = None
+
+
+class CORSDebugMiddleware:
+    """
+    Middleware para debug de CORS e requisições preflight
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Log de requisições OPTIONS (preflight)
+        if request.method == 'OPTIONS':
+            origin = request.META.get('HTTP_ORIGIN', 'Unknown')
+            logger.info(f"CORS Preflight request from origin: {origin}")
+        
+        response = self.get_response(request)
+        
+        # Adicionar headers de CORS debug
+        origin = request.META.get('HTTP_ORIGIN')
+        if origin:
+            logger.debug(f"Request from origin: {origin}")
+        
+        return response

@@ -1,0 +1,53 @@
+﻿#  FIX para Erro 403 (Forbidden)
+
+##  Problema
+\\\
+POST /api/audio/ HTTP/1.1" 403
+\\\
+
+Erro 403 = Requisição bloqueada por CORS ou CSRF
+
+##  Solução Aplicada
+
+### 1. **CORS Configurado para Frontend**
+Frontend URL adicionado em settings.py:
+\\\python
+CORS_ALLOWED_ORIGINS = [
+    'https://front-decifrae.vercel.app',  #  ADICIONADO
+    ...
+]
+\\\
+
+### 2. **CSRF Trusted Origins**
+\\\python
+CSRF_TRUSTED_ORIGINS = [
+    'https://front-decifrae.vercel.app',  #  ADICIONADO
+    ...
+]
+\\\
+
+### 3. **CSRF Exempt no AudioFileViewSet**
+O decorator \@csrf_exempt\ já está aplicado na class.
+
+##  Próximo Passo
+
+Faça **push** das mudanças:
+\\\ash
+git add .
+git commit -m "Fix: CORS configuration for Vercel frontend"
+git push
+\\\
+
+Render fará auto-deploy com as correções.
+
+##  Testar
+
+Se ainda receber 403:
+1. Abra DevTools (F12)
+2. Vá para Network tab
+3. Procure por request OPTIONS (preflight)
+4. Verifique headers de resposta:
+   - \Access-Control-Allow-Origin: https://front-decifrae.vercel.app\
+   - \Access-Control-Allow-Methods: POST, GET, OPTIONS\
+
+Se não houver esses headers, CORS não está funcionando.
