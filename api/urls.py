@@ -12,6 +12,7 @@ urlpatterns = [
     # Rotas principais
     path('', views.home, name='home'),
     path('help/', views.help_view, name='help'),
+    path('debug/', views.debug_view, name='debug'),
     
     # Rota de autenticação (apenas para obter dados do usuário)
     path('auth/me/', views.me_view, name='me'),

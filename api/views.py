@@ -70,14 +70,31 @@ class AudioFileViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         """
         Upload de arquivo de áudio com integração Supabase
+        
+        POST /api/audio/
+        {
+            "file": <arquivo mp3>,
+            "title": "Nome da música"
+        }
         """
+        logger.info(f"Iniciando upload de áudio. Usuário: {request.user}, Autenticado: {request.user.is_authenticated}")
+        
         file = request.FILES.get('file')
         title = request.data.get('title', 'Sem título')
         
         if not file:
+            logger.warning("Nenhum arquivo enviado na requisição")
             return Response(
                 {'error': 'Nenhum arquivo foi enviado'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validar autenticação
+        if not request.user.is_authenticated:
+            logger.warning("Tentativa de upload sem autenticação")
+            return Response(
+                {'error': 'Autenticação necessária'},
+                status=status.HTTP_401_UNAUTHORIZED
             )
         
         try:
@@ -85,6 +102,8 @@ class AudioFileViewSet(viewsets.ModelViewSet):
             file_ext = os.path.splitext(file.name)[1]
             unique_filename = f"{uuid.uuid4()}{file_ext}"
             file_path = f"{unique_filename}"
+            
+            logger.info(f"Iniciando upload do arquivo: {unique_filename} (original: {file.name}, tamanho: {file.size} bytes)")
             
             # Faz upload para o Supabase Storage
             supabase_client = SupabaseClient()
@@ -96,15 +115,20 @@ class AudioFileViewSet(viewsets.ModelViewSet):
             )
             
             if not upload_result.get('success'):
+                error_msg = f'Erro ao fazer upload para o Supabase: {upload_result.get("error")}'
+                logger.error(error_msg)
                 return Response(
-                    {'error': f'Erro ao fazer upload para o Supabase: {upload_result.get("error")}'},
+                    {'error': error_msg},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
+            
+            logger.info(f"Upload para Supabase concluído com sucesso. URL: {upload_result['public_url']}")
             
             # Obtém o user_id do Supabase (do token)
             user_id = None
             if hasattr(request, 'supabase_user'):
                 user_id = request.supabase_user.user.id
+                logger.info(f"Supabase user_id encontrado: {user_id}")
             
             # Salva na tabela audio_files do Supabase
             if user_id:
@@ -121,10 +145,14 @@ class AudioFileViewSet(viewsets.ModelViewSet):
                 supabase_record = supabase_client.create_audio_file(audio_data)
                 
                 if supabase_record.get('success'):
+                    logger.info(f"Áudio salvo no Supabase: {supabase_record['data']}")
                     # Retorna o registro do Supabase
                     return Response(supabase_record['data'], status=status.HTTP_201_CREATED)
+                else:
+                    logger.warning(f"Erro ao salvar no Supabase: {supabase_record}")
             
             # Fallback: Cria o registro no banco de dados local
+            logger.info(f"Salvando áudio no banco de dados local. Usuário: {request.user}")
             audio_file = AudioFile.objects.create(
                 user=request.user,  # Sempre usa o usuário autenticado
                 title=title,
@@ -135,12 +163,15 @@ class AudioFileViewSet(viewsets.ModelViewSet):
                 status='uploaded'
             )
             
+            logger.info(f"Áudio criado com sucesso: ID={audio_file.id}, Title={title}")
             serializer = self.get_serializer(audio_file)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
             
         except Exception as e:
+            error_msg = f'Erro ao processar upload: {str(e)}'
+            logger.exception(error_msg)  # exception() inclui traceback
             return Response(
-                {'error': f'Erro ao processar upload: {str(e)}'},
+                {'error': error_msg},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -420,5 +451,36 @@ def help_view(request):
             
             'GET /api/jobs/': 'Lista jobs de processamento',
             'GET /api/jobs/{id}/status/': 'Status de um job',
+        }
+    })
+
+@api_view(['GET'])
+def debug_view(request):
+    """
+    Endpoint de debug - informações sobre o servidor e requisição
+    Apenas em desenvolvimento
+    """
+    from django.conf import settings
+    
+    return Response({
+        'message': 'Debug Info - API DECIFRAE',
+        'debug_mode': settings.DEBUG,
+        'allowed_hosts': settings.ALLOWED_HOSTS,
+        'request_info': {
+            'method': request.method,
+            'path': request.path,
+            'host': request.get_host(),
+            'user': str(request.user),
+            'is_authenticated': request.user.is_authenticated,
+            'headers': {
+                'Content-Type': request.META.get('CONTENT_TYPE', 'N/A'),
+                'Authorization': 'SET' if request.META.get('HTTP_AUTHORIZATION') else 'NOT SET',
+                'X-Forwarded-Proto': request.META.get('HTTP_X_FORWARDED_PROTO', 'N/A'),
+                'X-Forwarded-Host': request.META.get('HTTP_X_FORWARDED_HOST', 'N/A'),
+            }
+        },
+        'supabase_config': {
+            'url_set': bool(os.environ.get('SUPABASE_URL')),
+            'storage_bucket': os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files'),
         }
     })
