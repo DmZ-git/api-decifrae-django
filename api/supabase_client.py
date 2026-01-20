@@ -157,9 +157,13 @@ class SupabaseClient:
             jwt_secret = os.environ.get('SUPABASE_JWT_SECRET') or os.environ.get('SUPABASE_SERVICE_KEY')
             
             if not jwt_secret:
+                logger.error("❌ SUPABASE_JWT_SECRET ou SUPABASE_SERVICE_KEY não configurado!")
                 raise ValueError("SUPABASE_JWT_SECRET ou SUPABASE_SERVICE_KEY não configurado")
             
+            logger.info(f"🔑 Tentando validar token JWT (secret configurado: {len(jwt_secret)} chars)")
+            
             # Decodifica e valida o token usando HS256 (chave simétrica)
+            # Supabase usa HS256 por padrão para tokens de usuário
             decoded = jwt.decode(
                 token,
                 jwt_secret,
@@ -167,6 +171,8 @@ class SupabaseClient:
                 audience="authenticated",
                 options={"verify_aud": True, "verify_signature": True}
             )
+            
+            logger.info(f"✅ Token válido! User: {decoded.get('email')} (ID: {decoded.get('sub')})")
             
             # Cria um objeto similar ao que o frontend espera
             class UserData:
@@ -180,13 +186,22 @@ class SupabaseClient:
             return UserData(decoded)
             
         except jwt.ExpiredSignatureError:
-            logger.warning(f"Token expirado")
+            logger.warning("⏰ Token expirado - usuário precisa fazer login novamente")
             raise ValueError("Token expirado")
+        except jwt.InvalidAudienceError:
+            logger.warning("🎯 Audience inválido no token")
+            raise ValueError("Token inválido: audience incorreto")
+        except jwt.InvalidSignatureError:
+            logger.error("🔐 Assinatura do token inválida - JWT_SECRET pode estar errado!")
+            raise ValueError("Token inválido: assinatura incorreta")
+        except jwt.DecodeError as e:
+            logger.error(f"📝 Erro ao decodificar token: {str(e)}")
+            raise ValueError(f"Token malformado: {str(e)}")
         except jwt.InvalidTokenError as e:
-            logger.warning(f"Token inválido: {str(e)}")
+            logger.warning(f"❌ Token inválido: {str(e)}")
             raise ValueError(f"Token inválido: {str(e)}")
         except Exception as e:
-            logger.error(f"Erro ao verificar token: {str(e)}")
+            logger.error(f"💥 Erro inesperado ao verificar token: {str(e)}")
             raise ValueError(f"Erro ao verificar token: {str(e)}")
 
     def create_audio_file(self, audio_data: dict) -> dict:

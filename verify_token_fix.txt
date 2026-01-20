@@ -1,0 +1,46 @@
+﻿    def verify_user_token(self, token: str):
+        """"""
+        Verifica token JWT do Supabase Auth usando JWT_SECRET
+        
+        Args:
+            token: Token JWT do usuário
+        
+        Returns:
+            objeto com user e outros dados se válido
+        """"""
+        try:
+            # Pega o JWT_SECRET do Supabase (pode ser a mesma que SERVICE_KEY ou uma específica)
+            jwt_secret = os.environ.get('SUPABASE_JWT_SECRET') or os.environ.get('SUPABASE_SERVICE_KEY')
+            
+            if not jwt_secret:
+                raise ValueError(""SUPABASE_JWT_SECRET ou SUPABASE_SERVICE_KEY não configurado"")
+            
+            # Decodifica e valida o token usando HS256 (chave simétrica)
+            decoded = jwt.decode(
+                token,
+                jwt_secret,
+                algorithms=[""HS256""],
+                audience=""authenticated"",
+                options={""verify_aud"": True, ""verify_signature"": True}
+            )
+            
+            # Cria um objeto similar ao que o frontend espera
+            class UserData:
+                def __init__(self, decoded_token):
+                    self.user = type('obj', (object,), {
+                        'id': decoded_token.get('sub'),
+                        'email': decoded_token.get('email'),
+                        'user_metadata': decoded_token.get('user_metadata', {})
+                    })()
+            
+            return UserData(decoded)
+            
+        except jwt.ExpiredSignatureError:
+            logger.warning(f""Token expirado"")
+            raise ValueError(""Token expirado"")
+        except jwt.InvalidTokenError as e:
+            logger.warning(f""Token inválido: {str(e)}"")
+            raise ValueError(f""Token inválido: {str(e)}"")
+        except Exception as e:
+            logger.error(f""Erro ao verificar token: {str(e)}"")
+            raise ValueError(f""Erro ao verificar token: {str(e)}"")
