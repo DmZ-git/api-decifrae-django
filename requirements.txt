@@ -16,3 +16,5 @@ supabase>=2.10
 # Audio stack (compatível)
 numpy>=2.1.0
 librosa>=0.10.2.post1
+# JWT Token Validation
+PyJWT[crypto]>=2.8.0

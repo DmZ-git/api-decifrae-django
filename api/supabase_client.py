@@ -4,6 +4,11 @@ Cliente Supabase para integração com a API
 import os
 from supabase import create_client, Client
 from django.conf import settings
+import jwt
+from jwt import PyJWKClient
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SupabaseClient:
@@ -28,7 +33,7 @@ class SupabaseClient:
         supabase_key = os.environ.get('SUPABASE_SERVICE_KEY') or os.environ.get('SUPABASE_ANON_KEY')
         
         if not supabase_url or not supabase_key:
-            print("⚠️  AVISO: SUPABASE_URL e SUPABASE_SERVICE_KEY não configurados. Funcionalidades de storage desabilitadas.")
+            logger.warning("⚠️  SUPABASE_URL e SUPABASE_SERVICE_KEY não configurados. Funcionalidades de storage desabilitadas.")
             self._client = None
             return
         
@@ -138,21 +143,58 @@ class SupabaseClient:
         
         return self._client.storage.from_(bucket).get_public_url(file_path)
 
-    def verify_user_token(self, token: str) -> dict:
+    def verify_user_token(self, token: str):
         """
-        Verifica token JWT do Supabase Auth
+        Verifica token JWT do Supabase Auth usando PyJWT
         
         Args:
             token: Token JWT do usuário
         
         Returns:
-            dict: Dados do usuário se válido
+            objeto com user e outros dados se válido
         """
         try:
-            user = self._client.auth.get_user(token)
-            return user
-        except Exception as e:
+            supabase_url = os.environ.get('SUPABASE_URL')
+            if not supabase_url:
+                raise ValueError("SUPABASE_URL não configurado")
+            
+            # Extrai project_ref da URL (ex: https://xxxxx.supabase.co -> xxxxx)
+            project_ref = supabase_url.split('//')[1].split('.')[0]
+            jwks_url = f"https://{project_ref}.supabase.co/auth/v1/jwks"
+            
+            # Carrega as chaves públicas do Supabase
+            jwks_client = PyJWKClient(jwks_url)
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            
+            # Decodifica e valida o token
+            decoded = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                audience="authenticated",
+                options={"verify_aud": True}
+            )
+            
+            # Cria um objeto similar ao que o frontend espera
+            class UserData:
+                def __init__(self, decoded_token):
+                    self.user = type('obj', (object,), {
+                        'id': decoded_token.get('sub'),
+                        'email': decoded_token.get('email'),
+                        'user_metadata': decoded_token.get('user_metadata', {})
+                    })()
+            
+            return UserData(decoded)
+            
+        except jwt.ExpiredSignatureError:
+            logger.warning(f"Token expirado")
+            raise ValueError("Token expirado")
+        except jwt.InvalidTokenError as e:
+            logger.warning(f"Token inválido: {str(e)}")
             raise ValueError(f"Token inválido: {str(e)}")
+        except Exception as e:
+            logger.error(f"Erro ao verificar token: {str(e)}")
+            raise ValueError(f"Erro ao verificar token: {str(e)}")
 
     def create_audio_file(self, audio_data: dict) -> dict:
         """
