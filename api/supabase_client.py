@@ -5,7 +5,6 @@ import os
 from supabase import create_client, Client
 from django.conf import settings
 import jwt
-from jwt import PyJWKClient
 import logging
 
 logger = logging.getLogger(__name__)
@@ -145,7 +144,7 @@ class SupabaseClient:
 
     def verify_user_token(self, token: str):
         """
-        Verifica token JWT do Supabase Auth usando PyJWT
+        Verifica token JWT do Supabase Auth usando JWT_SECRET
         
         Args:
             token: Token JWT do usuário
@@ -154,25 +153,19 @@ class SupabaseClient:
             objeto com user e outros dados se válido
         """
         try:
-            supabase_url = os.environ.get('SUPABASE_URL')
-            if not supabase_url:
-                raise ValueError("SUPABASE_URL não configurado")
+            # Pega o JWT_SECRET do Supabase (pode ser a mesma que SERVICE_KEY ou uma específica)
+            jwt_secret = os.environ.get('SUPABASE_JWT_SECRET') or os.environ.get('SUPABASE_SERVICE_KEY')
             
-            # Extrai project_ref da URL (ex: https://xxxxx.supabase.co -> xxxxx)
-            project_ref = supabase_url.split('//')[1].split('.')[0]
-            jwks_url = f"https://{project_ref}.supabase.co/auth/v1/jwks"
+            if not jwt_secret:
+                raise ValueError("SUPABASE_JWT_SECRET ou SUPABASE_SERVICE_KEY não configurado")
             
-            # Carrega as chaves públicas do Supabase
-            jwks_client = PyJWKClient(jwks_url)
-            signing_key = jwks_client.get_signing_key_from_jwt(token)
-            
-            # Decodifica e valida o token
+            # Decodifica e valida o token usando HS256 (chave simétrica)
             decoded = jwt.decode(
                 token,
-                signing_key.key,
-                algorithms=["RS256"],
+                jwt_secret,
+                algorithms=["HS256"],
                 audience="authenticated",
-                options={"verify_aud": True}
+                options={"verify_aud": True, "verify_signature": True}
             )
             
             # Cria um objeto similar ao que o frontend espera
