@@ -7,24 +7,14 @@ except Exception:
     pass
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-zq09*_713w)va0c-$d3o^km*-vl@5x1!4!3-81(su!%3oivl@k')
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'  # Ativar para desenvolvimento
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
-# ALLOWED_HOSTS Configuration
-_allowed_hosts = [
-    'localhost',
-    '127.0.0.1',
-    'api-decifrae.onrender.com',  # Render production domain
-    'api-decifrae-*.onrender.com',  # Render preview deployments
-]
-
-# Add from environment variable if provided
+# ALLOWED_HOSTS configuration
+_allowed_hosts = ['localhost', '127.0.0.1']
+if os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+    _allowed_hosts.append(os.environ.get('RENDER_EXTERNAL_HOSTNAME'))
 if os.environ.get('ALLOWED_HOSTS'):
-    _allowed_hosts.extend(os.environ.get('ALLOWED_HOSTS', '').split(','))
-
-# In production, allow all for Render (trust X-Forwarded-For headers)
-if not DEBUG:
-    _allowed_hosts.append('*')
-
+    _allowed_hosts.extend([h.strip() for h in os.environ.get('ALLOWED_HOSTS', '').split(',') if h.strip()])
 ALLOWED_HOSTS = _allowed_hosts
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -71,24 +61,45 @@ USE_TZ = True
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    'DEFAULT_AUTHENTICATION_CLASSES': [],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.AllowAny',
     ],
 }
 
-# Default Field
+# CSRF Configuration
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://front-decifrae.vercel.app',  # Frontend em produção
+    'https://api-decifrae.onrender.com',  # Backend em produção
+]
+
+# Adicionar origens dinâmicas do ambiente
+if os.environ.get('FRONTEND_URL'):
+    CSRF_TRUSTED_ORIGINS.append(os.environ.get('FRONTEND_URL'))
+if os.environ.get('RENDER_EXTERNAL_URL'):
+    CSRF_TRUSTED_ORIGINS.append(os.environ.get('RENDER_EXTERNAL_URL'))
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# CORS Configuration - FIX 403 ERROR
-CORS_ALLOWED_ORIGINS = [
-    'https://front-decifrae.vercel.app',  # Frontend em produção
+# CORS Configuration
+_cors_origins = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:8080',
     'http://127.0.0.1:8080',
+    'https://front-decifrae.vercel.app',  # Frontend em produção
 ]
+
+# Adicionar origens do ambiente
+if os.environ.get('CORS_ALLOWED_ORIGINS'):
+    _cors_origins.extend([o.strip() for o in os.environ.get('CORS_ALLOWED_ORIGINS').split(',') if o.strip()])
+
+CORS_ALLOWED_ORIGINS = _cors_origins
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = DEBUG  # Permitir todas as origens em desenvolvimento
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # Apenas em desenvolvimento
 
 # Supabase Configuration
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
@@ -96,60 +107,22 @@ SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files')
 
-# Celery Configuration (para processamento assíncrono)
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'America/Sao_Paulo'
-
 # Audio Processing Settings
 AUDIO_MAX_SIZE_MB = int(os.environ.get('AUDIO_MAX_SIZE_MB', 50))
-# Streaming and File Response Settings
-DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
 
-# WSGI streaming support for large files
-WSGI_APPLICATION = 'api.core.wsgi.application'
+# Security Settings (Production)
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
-# HTTP Response Settings
+# Proxy headers for Render
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-
-# CSRF Configuration
-CSRF_TRUSTED_ORIGINS = [
-    'https://front-decifrae.vercel.app',  # Frontend em produção
-    'https://api-decifrae.onrender.com',
-    'http://localhost:8080',
-    'http://127.0.0.1:8080',
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-]
-
-# Disable CSRF for API endpoints (handled by authentication)
-CSRF_EXEMPT_PATHS = [
-    '/api/audio/',
-    '/api/transcriptions/',
-    '/api/playlists/',
-    '/api/jobs/',
-]
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
-        },
-    },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'),
-        },
-    },
-}
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True

@@ -14,7 +14,7 @@ class AudioFile(models.Model):
         ('failed', 'Falhou'),
     ]
 
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='audio_files', verbose_name='Usuário')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='audio_files', verbose_name='Usuário', null=True, blank=True)
     title = models.CharField(max_length=255, verbose_name='Título')
     file_url = models.URLField(max_length=500, verbose_name='URL do Arquivo no Supabase')
     file_name = models.CharField(max_length=255, verbose_name='Nome do Arquivo')
@@ -36,7 +36,7 @@ class AudioFile(models.Model):
     def to_json(self):
         return {
             'id': self.id,
-            'user_id': self.user.id,
+            'user_id': self.user.id if self.user else None,
             'title': self.title,
             'file_url': self.file_url,
             'file_name': self.file_name,
@@ -55,7 +55,7 @@ class Transcription(models.Model):
     Contém acordes, letra, tom e outras informações musicais
     """
     audio_file = models.ForeignKey(AudioFile, on_delete=models.CASCADE, related_name='transcriptions', verbose_name='Arquivo de Áudio')
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='transcriptions', verbose_name='Usuário')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='transcriptions', verbose_name='Usuário', null=True, blank=True)
     title = models.CharField(max_length=255, verbose_name='Título', help_text='Título da música/cifra')
     artist = models.CharField(max_length=255, blank=True, null=True, verbose_name='Artista')
     
@@ -85,7 +85,7 @@ class Transcription(models.Model):
         return {
             'id': self.id,
             'audio_file_id': self.audio_file.id,
-            'user_id': self.user.id,
+            'user_id': self.user.id if self.user else None,
             'title': self.title,
             'artist': self.artist,
             'chords': self.chords,

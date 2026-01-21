@@ -2,10 +2,9 @@
 Cliente Supabase para integração com a API
 """
 import os
+import logging
 from supabase import create_client, Client
 from django.conf import settings
-import jwt
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,7 @@ class SupabaseClient:
             return
         
         self._client = create_client(supabase_url, supabase_key)
+        logger.info("✅ Cliente Supabase inicializado com sucesso")
 
     @property
     def client(self) -> Client:
@@ -103,11 +103,34 @@ class SupabaseClient:
         Returns:
             bytes: Conteúdo do arquivo
         """
+        if not self._client:
+            raise ValueError('Supabase client não configurado')
+
         if bucket is None:
             bucket = os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files')
         
-        response = self._client.storage.from_(bucket).download(file_path)
-        return response
+        return self._client.storage.from_(bucket).download(file_path)
+
+    def _extract_path_from_public_url(self, public_url: str, bucket: str) -> str:
+        """Extrai o caminho relativo do arquivo a partir de uma URL pública."""
+        marker = f"/storage/v1/object/public/{bucket}/"
+        if marker not in public_url:
+            return ''
+        return public_url.split(marker, 1)[1]
+
+    def download_audio_by_url(self, public_url: str, bucket: str = None) -> bytes:
+        """Download seguro usando service key a partir de uma URL pública."""
+        if not self._client:
+            raise ValueError('Supabase client não configurado')
+
+        if bucket is None:
+            bucket = os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files')
+
+        file_path = self._extract_path_from_public_url(public_url, bucket)
+        if not file_path:
+            raise ValueError('Não foi possível extrair o caminho do arquivo para download')
+
+        return self._client.storage.from_(bucket).download(file_path)
 
     def delete_audio(self, file_path: str, bucket: str = None) -> bool:
         """
@@ -144,65 +167,24 @@ class SupabaseClient:
 
     def verify_user_token(self, token: str):
         """
-        Verifica token JWT do Supabase Auth usando JWT_SECRET
+        Verifica token JWT do Supabase Auth
         
         Args:
             token: Token JWT do usuário
         
         Returns:
-            objeto com user e outros dados se válido
+            objeto com atributo user contendo dados do usuário se válido
         """
         try:
-            # Pega o JWT_SECRET do Supabase (pode ser a mesma que SERVICE_KEY ou uma específica)
-            jwt_secret = os.environ.get('SUPABASE_JWT_SECRET') or os.environ.get('SUPABASE_SERVICE_KEY')
-            
-            if not jwt_secret:
-                logger.error("❌ SUPABASE_JWT_SECRET ou SUPABASE_SERVICE_KEY não configurado!")
-                raise ValueError("SUPABASE_JWT_SECRET ou SUPABASE_SERVICE_KEY não configurado")
-            
-            logger.info(f"🔑 Tentando validar token JWT (secret configurado: {len(jwt_secret)} chars)")
-            
-            # Decodifica e valida o token usando HS256 (chave simétrica)
-            # Supabase usa HS256 por padrão para tokens de usuário
-            decoded = jwt.decode(
-                token,
-                jwt_secret,
-                algorithms=["HS256"],
-                audience="authenticated",
-                options={"verify_aud": True, "verify_signature": True}
-            )
-            
-            logger.info(f"✅ Token válido! User: {decoded.get('email')} (ID: {decoded.get('sub')})")
-            
-            # Cria um objeto similar ao que o frontend espera
-            class UserData:
-                def __init__(self, decoded_token):
-                    self.user = type('obj', (object,), {
-                        'id': decoded_token.get('sub'),
-                        'email': decoded_token.get('email'),
-                        'user_metadata': decoded_token.get('user_metadata', {})
-                    })()
-            
-            return UserData(decoded)
-            
-        except jwt.ExpiredSignatureError:
-            logger.warning("⏰ Token expirado - usuário precisa fazer login novamente")
-            raise ValueError("Token expirado")
-        except jwt.InvalidAudienceError:
-            logger.warning("🎯 Audience inválido no token")
-            raise ValueError("Token inválido: audience incorreto")
-        except jwt.InvalidSignatureError:
-            logger.error("🔐 Assinatura do token inválida - JWT_SECRET pode estar errado!")
-            raise ValueError("Token inválido: assinatura incorreta")
-        except jwt.DecodeError as e:
-            logger.error(f"📝 Erro ao decodificar token: {str(e)}")
-            raise ValueError(f"Token malformado: {str(e)}")
-        except jwt.InvalidTokenError as e:
-            logger.warning(f"❌ Token inválido: {str(e)}")
-            raise ValueError(f"Token inválido: {str(e)}")
+            user_response = self._client.auth.get_user(token)
+            # Cria objeto com estrutura esperada pelo middleware
+            class UserWrapper:
+                def __init__(self, user_data):
+                    self.user = user_data
+            return UserWrapper(user_response.user)
         except Exception as e:
-            logger.error(f"💥 Erro inesperado ao verificar token: {str(e)}")
-            raise ValueError(f"Erro ao verificar token: {str(e)}")
+            logger.error(f"Erro ao verificar token: {str(e)}")
+            raise ValueError(f"Token inválido: {str(e)}")
 
     def create_audio_file(self, audio_data: dict) -> dict:
         """
