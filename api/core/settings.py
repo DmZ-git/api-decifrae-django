@@ -43,15 +43,15 @@ ROOT_URLCONF = 'api.core.urls'
 TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'api' / 'templates'], 'APP_DIRS': True, 'OPTIONS': {'context_processors': ['django.template.context_processors.request', 'django.contrib.auth.context_processors.auth', 'django.contrib.messages.context_processors.messages']}}]
 WSGI_APPLICATION = 'api.core.wsgi.application'
 
-# Database: prefer Supabase/Postgres via DATABASE_URL; fallback to SQLite only in DEBUG
-_use_postgres = os.environ.get('DATABASE_URL') is not None
+# Database: prefer Supabase/Postgres via DATABASE_URL; fallback to SQLite
+_database_url = os.environ.get('DATABASE_URL')
 
-if _use_postgres:
+if _database_url:
     try:
         import dj_database_url
         DATABASES = {
             'default': dj_database_url.parse(
-                os.environ['DATABASE_URL'],
+                _database_url,
                 conn_max_age=600,
                 ssl_require=True,
             )
@@ -61,17 +61,13 @@ if _use_postgres:
             DATABASES['default']['OPTIONS'] = {}
         DATABASES['default']['OPTIONS']['sslmode'] = 'require'
     except Exception as e:
-        if DEBUG:
-            import logging
-            logging.warning(f"Failed to parse DATABASE_URL, falling back to SQLite: {e}")
-            DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}
-        else:
-            from django.core.exceptions import ImproperlyConfigured
-            raise ImproperlyConfigured(f'DATABASE_URL is invalid: {e}')
+        import logging
+        logging.warning(f"Failed to parse DATABASE_URL ({e}), falling back to SQLite")
+        DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}
 else:
-    if not DEBUG:
-        from django.core.exceptions import ImproperlyConfigured
-        raise ImproperlyConfigured('DATABASE_URL is required in production environment')
+    # No DATABASE_URL: use SQLite (works for local dev or when DB not yet configured)
+    import logging
+    logging.warning("DATABASE_URL not set, using SQLite fallback. Set DATABASE_URL env var to use PostgreSQL/Supabase.")
     DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
