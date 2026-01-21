@@ -29,6 +29,7 @@ class AudioFile(models.Model):
         verbose_name = 'Arquivo de Áudio'
         verbose_name_plural = 'Arquivos de Áudio'
         ordering = ['-created_at']
+        db_table = 'audio_files'
 
     def __str__(self):
         return f"{self.title} ({self.file_name})"
@@ -77,6 +78,7 @@ class Transcription(models.Model):
         verbose_name = 'Transcrição/Cifra'
         verbose_name_plural = 'Transcrições/Cifras'
         ordering = ['-created_at']
+        db_table = 'transcriptions'
 
     def __str__(self):
         return f"{self.title} - {self.artist or 'Desconhecido'}"
@@ -118,6 +120,7 @@ class Playlist(models.Model):
         verbose_name = 'Playlist'
         verbose_name_plural = 'Playlists'
         ordering = ['-created_at']
+        db_table = 'playlists'
 
     def __str__(self):
         return f"{self.name} - {self.user.username}"
@@ -172,6 +175,7 @@ class ProcessingJob(models.Model):
         verbose_name = 'Job de Processamento'
         verbose_name_plural = 'Jobs de Processamento'
         ordering = ['-created_at']
+        db_table = 'processing_jobs'
 
     def __str__(self):
         return f"Job {self.id}: {self.job_type} - {self.status}"

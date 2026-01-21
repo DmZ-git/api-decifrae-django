@@ -38,6 +38,35 @@ class SupabaseClient:
         self._client = create_client(supabase_url, supabase_key)
         logger.info("✅ Cliente Supabase inicializado com sucesso")
 
+    def ensure_bucket(self, bucket: str = None, public: bool = True) -> bool:
+        """Garante que o bucket existe; cria se necessário."""
+        if not self._client:
+            logger.warning("Supabase client não configurado; não é possível verificar bucket")
+            return False
+
+        if bucket is None:
+            bucket = os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files')
+
+        try:
+            # Tenta listar buckets para verificar existência
+            buckets = self._client.storage.list_buckets()
+            # buckets é uma lista de dicts com 'name', 'id', etc
+            bucket_names = [b.name if hasattr(b, 'name') else b.get('name', '') for b in buckets]
+            
+            if bucket in bucket_names:
+                logger.info(f"Bucket '{bucket}' encontrado")
+                return True
+            
+            # Bucket não existe; tenta criar
+            logger.info(f"Bucket '{bucket}' não encontrado; criando...")
+            self._client.storage.create_bucket(bucket, public=public)
+            logger.info(f"Bucket '{bucket}' criado com sucesso")
+            return True
+        except Exception as e:
+            logger.warning(f"Não foi possível garantir bucket '{bucket}': {e}; continuando mesmo assim")
+            # Mesmo que falhe ao verificar, continuamos
+            return True
+
     @property
     def client(self) -> Client:
         """
@@ -67,6 +96,8 @@ class SupabaseClient:
             bucket = os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files')
         
         try:
+            # Garante que o bucket existe antes do upload
+            self.ensure_bucket(bucket)
             # Upload do arquivo com upsert=True para sobrescrever se existir
             response = self._client.storage.from_(bucket).upload(
                 path=file_path,

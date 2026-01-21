@@ -47,6 +47,8 @@ class AudioFileViewSet(viewsets.ModelViewSet):
             file_path = f"{unique_filename}"
             
             supabase_client_inst = SupabaseClient()
+            # Garante existência do bucket antes de enviar
+            supabase_client_inst.ensure_bucket(os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files'))
             file_content = file.read()
             upload_result = supabase_client_inst.upload_audio(
                 file_path=file_path,
@@ -73,19 +75,6 @@ class AudioFileViewSet(viewsets.ModelViewSet):
                 format=file_ext.replace('.', ''),
                 status='uploaded'
             )
-            
-            if user_id:
-                audio_data = {
-                    'user_id': user_id,
-                    'title': title,
-                    'file_path': file_path,
-                    'storage_url': upload_result['public_url'],
-                    'file_size': file.size,
-                    'format': file_ext.replace('.', ''),
-                    'status': 'completed',
-                    'django_id': audio_file.id
-                }
-                supabase_client_inst.create_audio_file(audio_data)
             
             serializer = self.get_serializer(audio_file)
             return Response(serializer.data, status=status.HTTP_201_CREATED)

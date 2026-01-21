@@ -42,13 +42,37 @@ MIDDLEWARE = [
 ROOT_URLCONF = 'api.core.urls'
 TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'api' / 'templates'], 'APP_DIRS': True, 'OPTIONS': {'context_processors': ['django.template.context_processors.request', 'django.contrib.auth.context_processors.auth', 'django.contrib.messages.context_processors.messages']}}]
 WSGI_APPLICATION = 'api.core.wsgi.application'
-DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}
-if os.environ.get('DATABASE_URL'):
+
+# Database: prefer Supabase/Postgres via DATABASE_URL; fallback to SQLite only in DEBUG
+_use_postgres = os.environ.get('DATABASE_URL') is not None
+
+if _use_postgres:
     try:
         import dj_database_url
-        DATABASES['default'] = dj_database_url.parse(os.environ.get('DATABASE_URL'))
-    except Exception:
-        pass
+        DATABASES = {
+            'default': dj_database_url.parse(
+                os.environ['DATABASE_URL'],
+                conn_max_age=600,
+                ssl_require=True,
+            )
+        }
+        # Ensure sslmode=require for psycopg
+        if 'OPTIONS' not in DATABASES['default']:
+            DATABASES['default']['OPTIONS'] = {}
+        DATABASES['default']['OPTIONS']['sslmode'] = 'require'
+    except Exception as e:
+        if DEBUG:
+            import logging
+            logging.warning(f"Failed to parse DATABASE_URL, falling back to SQLite: {e}")
+            DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}
+        else:
+            from django.core.exceptions import ImproperlyConfigured
+            raise ImproperlyConfigured(f'DATABASE_URL is invalid: {e}')
+else:
+    if not DEBUG:
+        from django.core.exceptions import ImproperlyConfigured
+        raise ImproperlyConfigured('DATABASE_URL is required in production environment')
+    DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}}
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 STATIC_URL = '/static/'
