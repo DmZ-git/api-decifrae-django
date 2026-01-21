@@ -1,13 +1,27 @@
 import librosa
 import numpy as np
 import json
+import os
 from typing import List, Dict, Optional
+import logging
 
-# Imports opcionais para visualização
+logger = logging.getLogger(__name__)
+
+# Configurações de otimização de memória
+LIBROSA_CACHE_ENABLED = False  # Desabilita cache de librosa
+MAX_AUDIO_DURATION = 300  # 5 minutos max
+MAX_FILE_SIZE_MB = 50  # 50MB max
+
+# Imports opcionais para visualização (NUNCA usada em produção)
+ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production')
+VISUALIZAR_DISPONIVEL = ENVIRONMENT != 'production'
 try:
-    import matplotlib.pyplot as plt
-    import librosa.display
-    MATPLOTLIB_AVAILABLE = True
+    if VISUALIZAR_DISPONIVEL:
+        import matplotlib.pyplot as plt
+        import librosa.display
+        MATPLOTLIB_AVAILABLE = True
+    else:
+        MATPLOTLIB_AVAILABLE = False
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
@@ -66,39 +80,80 @@ def classificar_segmento(chroma_segmento):
 def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
     """
     Processa um arquivo de áudio e retorna as cifras detectadas em formato JSON.
+    OTIMIZADO para reduzir uso de memória.
     
     Args:
         audio_path: Caminho para o arquivo de áudio (.mp3, .wav, etc)
-        visualizar: Se True, mostra gráfico de visualização
+        visualizar: Se True, mostra gráfico de visualização (apenas em dev)
     
     Returns:
         Dicionário com os acordes detectados e metadados
     """
     try:
-        # A. Carregar Áudio
-        y, sr = librosa.load(audio_path)
+        # Validação de tamanho de arquivo
+        file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+        if file_size_mb > MAX_FILE_SIZE_MB:
+            return {
+                "sucesso": False,
+                "erro": f"Arquivo muito grande ({file_size_mb:.1f}MB). Máximo: {MAX_FILE_SIZE_MB}MB",
+                "arquivo": os.path.basename(audio_path)
+            }
+        
+        # A. Carregar Áudio com resampling agressivo para economizar memória
+        # Reduz amostragem para 22050 Hz (padrão librosa) - adequado para acordes
+        y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        
+        # Validação de duração
+        duracao_total = float(librosa.get_duration(y=y, sr=sr))
+        if duracao_total > MAX_AUDIO_DURATION:
+            return {
+                "sucesso": False,
+                "erro": f"Áudio muito longo ({duracao_total:.1f}s). Máximo: {MAX_AUDIO_DURATION}s",
+                "arquivo": os.path.basename(audio_path)
+            }
 
-        # B. Separação Harmônica/Percussiva
-        y_harmonic, y_percussive = librosa.effects.hpss(y, margin=3.0)
+        # B. Separação Harmônica/Percussiva (OTIMIZADA)
+        # Usa margin menor para reduzir tempo de processamento
+        y_harmonic, y_percussive = librosa.effects.hpss(y, margin=2.0)
 
-        # C. CQT (Melhor resolução que FFT para notas graves)
-        chroma = librosa.feature.chroma_cqt(y=y_harmonic, sr=sr, bins_per_octave=36)
+        # Libera memória do áudio original
+        del y
+        
+        # C. CQT com bins reduzidos para economizar memória (de 36 para 12)
+        # Ainda mantém boa qualidade para detecção de acordes
+        chroma = librosa.feature.chroma_cqt(
+            y=y_harmonic, 
+            sr=sr, 
+            bins_per_octave=12,  # Reduzido de 36
+            fmin=65,  # Começa em C2 ao invés de mais grave
+        )
+        
+        # Libera memória harmônica
+        del y_harmonic
 
-        # D. Detecção de Onsets (Ataques)
+        # D. Detecção de Onsets (Ataques) com parâmetros otimizados
         onset_frames = librosa.onset.onset_detect(
             y=y_percussive,
             sr=sr,
             backtrack=True,
             units='frames',
             wait=30,
-            delta=0.1
+            delta=0.1,
+            pre_max=10,  # Adicionado para otimização
+            post_max=10  # Adicionado para otimização
         )
+        
+        # Libera memória percussiva
+        del y_percussive
 
         # E. Correção de Bordas (Fix Frames)
         onset_frames = librosa.util.fix_frames(onset_frames, x_max=chroma.shape[1])
 
-        # F. Sincronização (A Mágica)
+        # F. Sincronização
         chroma_sync = librosa.util.sync(chroma, onset_frames, aggregate=np.median)
+        
+        # Libera memória de chroma original
+        del chroma
 
         # G. Converter frames para tempo (segundos)
         tempos_limite = librosa.frames_to_time(onset_frames, sr=sr)

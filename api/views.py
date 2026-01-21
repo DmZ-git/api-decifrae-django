@@ -9,6 +9,7 @@ from .models import AudioFile, Transcription, ProcessingJob
 from .serializers import AudioFileSerializer, TranscriptionSerializer, ProcessingJobSerializer
 from .supabase_client import SupabaseClient, supabase_client
 from .services.audio_processing_client import AudioProcessingService
+from .tasks import processar_audio_async  # Importa task assíncrona
 import os
 import tempfile
 import logging
@@ -95,113 +96,62 @@ class AudioFileViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def process(self, request, pk=None):
         """
-        Processa o áudio imediatamente usando o classificador central de acordes.
-        Baixa do Supabase via service key e faz processamento síncrono.
+        Inicia o processamento de áudio de forma ASSÍNCRONA.
+        Retorna imediatamente com job_id para o cliente fazer polling.
         
         POST /api/audio/{id}/process/
         """
         audio_file = self.get_object()
         
+        # Validação de tamanho
+        max_size_mb = 50
+        if audio_file.file_size > max_size_mb * 1024 * 1024:
+            return Response(
+                {'error': f'Arquivo muito grande. Máximo: {max_size_mb}MB'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Cria ProcessingJob
         job = ProcessingJob.objects.create(
             audio_file=audio_file,
             job_type='chord_detection',
-            status='processing',
-            progress=10,
+            status='queued',
+            progress=0,
             parameters={'file_url': audio_file.file_url}
         )
         
-        tmp_path = None
+        logger.info(f"Job criado: {job.id} para áudio: {audio_file.id}")
+        
+        # Enfileira task assíncrona
         try:
-            job.progress = 20
-            job.save()
-            
-            # Tenta baixar via Supabase service key primeiro (mais seguro)
-            try:
-                logger.info(f"Tentando download via Supabase service key: {audio_file.file_url}")
-                file_bytes = supabase_client.download_audio_by_url(audio_file.file_url)
-                
-                suffix = os.path.splitext(audio_file.file_url)[1] or '.mp3'
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                    tmp.write(file_bytes)
-                    tmp_path = tmp.name
-                
-                job.progress = 40
-                job.save()
-                
-                processing_result = AudioProcessingService.processar_audio(tmp_path)
-                
-            except Exception as supabase_err:
-                logger.warning(f"Download via Supabase falhou, usando fallback HTTP: {supabase_err}")
-                job.progress = 30
-                job.save()
-                processing_result = AudioProcessingService.processar_audio_url(audio_file.file_url)
-            
-            if not processing_result.get('success'):
-                job.status = 'failed'
-                job.progress = 100
-                job.error_message = processing_result.get('error', 'Erro ao processar áudio')
-                job.save()
-                
-                return Response(
-                    {'error': job.error_message},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-            
-            job.progress = 70
-            job.save()
-            
-            chords_data = processing_result.get('chords', [])
-            metadata = processing_result.get('metadata', {})
-            
-            transcription = Transcription.objects.create(
-                audio_file=audio_file,
-                user=audio_file.user if audio_file.user else request.user if request.user.is_authenticated else None,
-                title=f"{audio_file.title} - Cifra",
-                chords=chords_data,
-                confidence=0.85,
-                key=None,
-                bpm=None,
-                tempo_map=None,
-                lyrics=None,
-                artist=None,
-                notes=None,
+            task = processar_audio_async.delay(
+                audio_file_id=audio_file.id,
+                file_url=audio_file.file_url
             )
-            
-            job.status = 'completed'
-            job.progress = 100
-            job.result = {
-                'transcription_id': transcription.id,
-                'total_acordes': len(chords_data),
-                'metadata': metadata,
-            }
+            job.celery_task_id = task.id
+            job.status = 'processing'
+            job.progress = 10
             job.save()
             
-            audio_file.status = 'completed'
-            audio_file.save()
+            logger.info(f"Task Celery enfileirada: {task.id}")
             
             return Response({
                 'success': True,
-                'message': 'Processamento concluído',
+                'message': 'Processamento iniciado',
                 'job_id': job.id,
-                'transcription_id': transcription.id,
-                'total_acordes': len(chords_data),
-                'metadata': metadata,
-            }, status=status.HTTP_200_OK)
+                'task_id': task.id,
+            }, status=status.HTTP_202_ACCEPTED)
             
         except Exception as e:
-            logger.exception(f"Erro ao processar áudio {audio_file.id}: {e}")
+            logger.error(f"Erro ao enfileirar task: {e}")
             job.status = 'failed'
-            job.progress = 100
-            job.error_message = f"Erro: {str(e)}"
+            job.error_message = f'Erro ao iniciar processamento: {str(e)}'
             job.save()
             
             return Response(
-                {'error': job.error_message},
+                {'error': 'Erro ao iniciar processamento'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
 
 
 class TranscriptionViewSet(viewsets.ModelViewSet):

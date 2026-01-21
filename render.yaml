@@ -5,4 +5,29 @@ services:
     plan: free
     pythonVersion: 3.13
     buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt && python app.py migrate
-    startCommand: gunicorn api.core.wsgi:application --bind 0.0.0.0:10000 --workers 1 --timeout 120
+    startCommand: gunicorn api.core.wsgi:application --bind 0.0.0.0:10000 --workers 2 --worker-class sync --timeout 30 --max-requests 100 --max-requests-jitter 10
+    envVars:
+      - key: GUNICORN_CMD_ARGS
+        value: --workers=2 --timeout=30 --max-requests=100
+  
+  # Background worker para processar áudio de forma assíncrona
+  - type: background_worker
+    name: celery-worker-audio
+    env: python
+    pythonVersion: 3.13
+    buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
+    startCommand: celery -A api worker -l info --concurrency=1 --max-tasks-per-child=100
+    envVars:
+      - key: CELERY_BROKER_URL
+        fromDatabase:
+          name: redis-cache
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromDatabase:
+          name: redis-cache
+          property: connectionString
+
+databases:
+  - name: redis-cache
+    engine: redis
+    plan: free

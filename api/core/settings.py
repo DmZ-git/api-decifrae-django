@@ -130,6 +130,38 @@ SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files
 # Audio Processing Settings
 AUDIO_MAX_SIZE_MB = int(os.environ.get('AUDIO_MAX_SIZE_MB', 50))
 
+# ===== CELERY CONFIGURATION =====
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+
+# Celery Task Settings
+CELERY_TASK_SOFT_TIME_LIMIT = 600  # 10 minutos
+CELERY_TASK_TIME_LIMIT = 900  # 15 minutos
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000  # Reinicia worker para limpar memória
+
+# Celery Result Settings
+CELERY_RESULT_EXPIRES = 3600  # 1 hora
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# Enable Celery in production
+if not DEBUG:
+    CELERY_ALWAYS_EAGER = False
+else:
+    # In development, optionally run tasks synchronously
+    CELERY_ALWAYS_EAGER = os.environ.get('CELERY_ALWAYS_EAGER', 'False').lower() in ('true', '1')
+
+# ===== MEMORY OPTIMIZATION =====
+# Desabilita cache de librosa para economizar memória
+os.environ['LIBROSA_CACHE_ENABLED'] = 'False'
+
+# Configuração do ENVIRONMENT
+ENVIRONMENT = 'production' if not DEBUG else 'development'
+
 # Security Settings (Production)
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
