@@ -45,6 +45,7 @@ WSGI_APPLICATION = 'api.core.wsgi.application'
 
 # Database: prefer Supabase/Postgres via DATABASE_URL; fallback to SQLite
 _database_url = os.environ.get('DATABASE_URL')
+print("DATABASE_URL =", os.environ.get("DATABASE_URL"))
 
 if _database_url:
     try:
