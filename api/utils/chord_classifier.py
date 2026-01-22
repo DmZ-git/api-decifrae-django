@@ -2,7 +2,8 @@ import librosa
 import numpy as np
 import json
 import os
-from typing import List, Dict, Optional
+import time
+from typing import Dict
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,60 +27,146 @@ except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
 # ==========================================
-# 1. MOTOR DE CLASSIFICAÇÃO (Likelihood)
+# 1. MOTOR DE CLASSIFICAÇÃO COM INÉRCIA (V4)
 # ==========================================
-def classificar_segmento(chroma_segmento):
+def classificar_segmento_v4(chroma_segmento, acorde_anterior=""):
     """
-    Analisa uma fatia de áudio (vetor de 12 notas) e decide qual o acorde.
+    Classifica um segmento de áudio com contexto temporal (inércia).
+    Mantém estabilidade preferindo acordes anteriores se a confiança for similar.
+    
+    Args:
+        chroma_segmento: Vetor de 12 notas (chroma)
+        acorde_anterior: Acorde do segmento anterior (para inércia)
+    
+    Returns:
+        Nome do acorde detectado
     """
-    # Se o segmento for silêncio absoluto, retorna vazio
-    if np.sum(chroma_segmento) < 0.05:
-        return "Silêncio"
-
-    # Normaliza para que o volume não afete a decisão, apenas a proporção das notas
+    # 1. Gate e Normalização
+    if np.sum(chroma_segmento) < 0.1:
+        return ""
+    
     chroma_norm = chroma_segmento / (np.max(chroma_segmento) + 1e-6)
-
     notas_nomes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+    # 2. Definição de Templates (Apenas Tríades para estabilidade)
+    tipos_acordes = {
+        '':     {'idx': [0, 4, 7],     'bias': 0.15, 'required': None},  # Maior
+        'm':    {'idx': [0, 3, 7],     'bias': 0.15, 'required': None},  # Menor
+    }
 
     melhor_score = -float('inf')
     acorde_vencedor = "N/A"
 
     for i, root in enumerate(notas_nomes):
-        # Template MAIOR (Raiz + 4 + 7 semitons)
-        # Ex: Dó Maior = C, E, G
-        mask_maj = np.zeros(12)
-        mask_maj[[i, (i+4)%12, (i+7)%12]] = 1.0
-
-        # Template MENOR (Raiz + 3 + 7 semitons)
-        # Ex: Dó Menor = C, Eb, G
-        mask_min = np.zeros(12)
-        mask_min[[i, (i+3)%12, (i+7)%12]] = 1.0
-
-        # CÁLCULO DE LIKELIHOOD (Pontuação)
-        # Ganha pontos se tiver as notas certas, perde pontos se tiver notas erradas
-
-        # Teste Maior
-        score_maj = np.sum(chroma_norm * mask_maj) - 0.6 * np.sum(chroma_norm * (1-mask_maj))
-
-        # Teste Menor
-        score_min = np.sum(chroma_norm * mask_min) - 0.6 * np.sum(chroma_norm * (1-mask_min))
-
-        if score_maj > melhor_score:
-            melhor_score = score_maj
-            acorde_vencedor = root # Maior
-
-        if score_min > melhor_score:
-            melhor_score = score_min
-            acorde_vencedor = f"{root}m" # Menor
-
+        for sufixo, dados in tipos_acordes.items():
+            nome_atual = f"{root}{sufixo}"
+            
+            intervalos = dados['idx']
+            bias = dados['bias']
+            required_interval = dados['required']
+            
+            # Índices das notas do acorde
+            indices_reais = [(i + interval) % 12 for interval in intervalos]
+            
+            # Validação de nota crítica (se configurada)
+            if required_interval is not None:
+                idx_critico = (i + required_interval) % 12
+                if chroma_norm[idx_critico] < 0.25:
+                    continue
+            
+            # Score baseado em energia útil vs ruído
+            energia_util = np.sum(chroma_norm[indices_reais])
+            mask = np.ones(12, dtype=bool)
+            mask[indices_reais] = False
+            energia_ruido = np.sum(chroma_norm[mask])
+            
+            score = energia_util - (0.6 * energia_ruido) + bias
+            
+            # ====================================================
+            # INÉRCIA TEMPORAL: Bônus para manter acorde anterior
+            # ====================================================
+            if nome_atual == acorde_anterior:
+                # Bônus massivo para estabilidade (evita flutuar)
+                score += 0.5
+            
+            # (Opcional) Penalidade para trocar tríade simples por complexa
+            if acorde_anterior and len(acorde_anterior) < len(nome_atual):
+                score -= 0.1
+            
+            if score > melhor_score:
+                melhor_score = score
+                acorde_vencedor = nome_atual
+    
     return acorde_vencedor
 
+
 # ==========================================
-# 2. ALGORITMO PRINCIPAL COM ONSET
+# 2. BEAT TRACKING COM SÍNCRONIZAÇÃO
+# ==========================================
+def run_beat_tracking(y, sr, y_harmonic, y_percussive):
+    """
+    Executa beat tracking e sincroniza chroma com beats para detecção de acordes.
+    Mais estável que onset detection para processamento com inércia.
+    
+    Args:
+        y: Áudio original
+        sr: Sample rate
+        y_harmonic: Componente harmônica
+        y_percussive: Componente percussiva
+    
+    Returns:
+        Tupla (segmentos, tempo_BPM)
+    """
+    # 1. Detectar Batidas (mais robustas que onsets para acordes)
+    tempo, beats = librosa.beat.beat_track(y=y_percussive, sr=sr)
+    
+    # 2. Processar Chroma (CQT otimizado)
+    chroma = librosa.feature.chroma_cqt(
+        y=y_harmonic, 
+        sr=sr, 
+        bins_per_octave=12,  # Otimizado para memória
+        fmin=65
+    )
+    
+    # 3. Sincronizar Chroma com Beats
+    beats = librosa.util.fix_frames(beats, x_max=chroma.shape[1])
+    chroma_sync = librosa.util.sync(chroma, beats, aggregate=np.median)
+    
+    # Libera memória de chroma original
+    del chroma
+    
+    # 4. Gerar Lista de Segmentos com Inércia Temporal
+    tempos = librosa.frames_to_time(beats, sr=sr)
+    segmentos = []
+    
+    acorde_anterior = ""  # Estado para inércia
+    
+    for i in range(chroma_sync.shape[1]):
+        # Passa o acorde anterior para manter contexto
+        acorde = classificar_segmento_v4(chroma_sync[:, i], acorde_anterior)
+        
+        # Calcula duração até o próximo beat
+        duracao = tempos[i+1] - tempos[i] if i+1 < len(tempos) else 0
+        
+        segmentos.append({
+            'start': round(tempos[i], 2),
+            'end': round(tempos[i+1] if i+1 < len(tempos) else tempos[i], 2),
+            'label': acorde,
+            'duracao': round(duracao, 2)
+        })
+        
+        # Atualiza estado para próxima iteração (inércia)
+        acorde_anterior = acorde
+    
+    return segmentos, tempo
+
+
+# ==========================================
+# 3. PROCESSAMENTO PRINCIPAL (Integrado)
 # ==========================================
 def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
     """
-    Processa um arquivo de áudio e retorna as cifras detectadas em formato JSON.
+    Processa um arquivo de áudio com beat tracking e inércia temporal.
     OTIMIZADO para reduzir uso de memória.
     
     Args:
@@ -99,9 +186,9 @@ def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
                 "arquivo": os.path.basename(audio_path)
             }
         
-        # A. Carregar Áudio com resampling agressivo para economizar memória
-        # Reduz amostragem para 22050 Hz (padrão librosa) - adequado para acordes
-        y, sr = librosa.load(audio_path, sr=22050, mono=True)
+        # A. Carregar Áudio com resampling otimizado
+        # 11025 Hz é suficiente para beat tracking e acordes
+        y, sr = librosa.load(audio_path, sr=11025, mono=True)
         
         # Validação de duração (ANTES de deletar y)
         duracao_total = float(librosa.get_duration(y=y, sr=sr))
@@ -112,147 +199,90 @@ def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
                 "arquivo": os.path.basename(audio_path)
             }
 
-        # B. Separação Harmônica/Percussiva (OTIMIZADA)
-        # Usa margin menor para reduzir tempo de processamento
-        y_harmonic, y_percussive = librosa.effects.hpss(y, margin=2.0)
-
-        # Libera memória do áudio original
-        del y
+        # B. Separação Harmônica/Percussiva (HPSS)
+        y_harmonic, y_percussive = librosa.effects.hpss(y, margin=3.0)
+        
+        # C. Beat Tracking com Síncronização
+        timer_start = time.time()
+        segmentos_brutos, tempo_bpm = run_beat_tracking(y, sr, y_harmonic, y_percussive)
+        tempo_processamento = time.time() - timer_start
+        
+        # Libera memória
+        del y, y_harmonic, y_percussive
         import gc
         gc.collect()
         
-        # C. CQT com bins reduzidos para economizar memória (de 36 para 12)
-        # Ainda mantém boa qualidade para detecção de acordes
-        chroma = librosa.feature.chroma_cqt(
-            y=y_harmonic, 
-            sr=sr, 
-            bins_per_octave=12,  # Reduzido de 36
-            fmin=65,  # Começa em C2 ao invés de mais grave
-        )
+        # D. Consolidar Acordes (Agrupa mesmos acordes consecutivos)
+        acordes_consolidados = []
+        for segmento in segmentos_brutos:
+            if not acordes_consolidados:
+                # Primeiro segmento
+                acordes_consolidados.append({
+                    'acorde': segmento['label'],
+                    'tempo_inicio': segmento['start'],
+                    'duracao': segmento['duracao']
+                })
+            elif segmento['label'] == acordes_consolidados[-1]['acorde']:
+                # Mesmo acorde - agrupa
+                acordes_consolidados[-1]['duracao'] += segmento['duracao']
+            else:
+                # Novo acorde
+                acordes_consolidados.append({
+                    'acorde': segmento['label'],
+                    'tempo_inicio': segmento['start'],
+                    'duracao': segmento['duracao']
+                })
         
-        # Libera memória harmônica
-        del y_harmonic
-
-        # D. Detecção de Onsets (Ataques) com parâmetros otimizados
-        onset_frames = librosa.onset.onset_detect(
-            y=y_percussive,
-            sr=sr,
-            backtrack=True,
-            units='frames',
-            wait=30,
-            delta=0.1,
-            pre_max=10,  # Adicionado para otimização
-            post_max=10  # Adicionado para otimização
-        )
-        
-        # Libera memória percussiva
-        del y_percussive
-
-        # E. Correção de Bordas (Fix Frames)
-        onset_frames = librosa.util.fix_frames(onset_frames, x_max=chroma.shape[1])
-
-        # F. Sincronização
-        chroma_sync = librosa.util.sync(chroma, onset_frames, aggregate=np.median)
-        
-        # Libera memória de chroma original
-        del chroma
-
-        # G. Converter frames para tempo (segundos)
-        tempos_limite = librosa.frames_to_time(onset_frames, sr=sr)
-
-        # H. Normaliza para limpar ruído de fundo
-        chroma_sync = librosa.util.normalize(chroma_sync, axis=0)
-
-        # Libera memória adicional
-        import gc
-        gc.collect()
-
-        # ==========================================
-        # 3. GERAÇÃO DA TIMELINE
-        # ==========================================
-        acordes_detectados = []
-        acorde_anterior = ""
-        inicio_tempo_segmento = tempos_limite[0]
-
-        # Loop através de cada segmento sincronizado
-        for i in range(chroma_sync.shape[1]):
-            coluna_atual = chroma_sync[:, i]
-            acorde_atual = classificar_segmento(coluna_atual)
-
-            # Verifica mudança de acorde
-            if acorde_atual != acorde_anterior:
-                # Se havia um acorde anterior, adiciona à lista
-                if acorde_anterior != "":
-                    acordes_detectados.append({
-                        "acorde": acorde_anterior,
-                        "inicio": round(inicio_tempo_segmento, 2),
-                        "fim": round(tempos_limite[i], 2),
-                        "duracao": round(tempos_limite[i] - inicio_tempo_segmento, 2)
-                    })
-
-                # Começa a rastrear o novo acorde
-                acorde_anterior = acorde_atual
-                inicio_tempo_segmento = tempos_limite[i]
-
-        # Adiciona o último acorde
-        acordes_detectados.append({
-            "acorde": acorde_anterior,
-            "inicio": round(inicio_tempo_segmento, 2),
-            "fim": round(tempos_limite[-1], 2),
-            "duracao": round(tempos_limite[-1] - inicio_tempo_segmento, 2)
-        })
-
-        # duracao_total já foi calculada no início (linha ~109)
-
         # Monta o resultado final
         resultado = {
             "sucesso": True,
-            "arquivo": audio_path.split('/')[-1].split('\\')[-1],
+            "arquivo": os.path.basename(audio_path),
             "duracao_total": round(duracao_total, 2),
             "taxa_amostragem": int(sr),
-            "quantidade_acordes": len(acordes_detectados),
+            "tempo_bpm": round(tempo_bpm, 1),
+            "quantidade_acordes": len(acordes_consolidados),
+            "tempo_processamento_ms": round(tempo_processamento * 1000, 1),
             "acordes": [{
-                "acorde": a["acorde"],
-                "tempo_inicio": a["inicio"],
-                "duracao": a["duracao"],
-                "confianca": 0.85  # Placeholder - pode ser melhorado com cálculo real
-            } for a in acordes_detectados]
+                "acorde": a['acorde'],
+                "tempo_inicio": a['tempo_inicio'],
+                "duracao": a['duracao'],
+                "confianca": 0.85  # Placeholder
+            } for a in acordes_consolidados]
         }
 
         # ==========================================
-        # 4. VISUALIZAÇÃO (OPCIONAL)
+        # E. VISUALIZAÇÃO (OPCIONAL)
         # ==========================================
         if visualizar and MATPLOTLIB_AVAILABLE:
             plt.figure(figsize=(14, 6))
-            librosa.display.specshow(
-                chroma_sync,
-                x_axis='time',
-                y_axis='chroma',
-                x_coords=tempos_limite[:-1],
-                cmap='coolwarm',
-                shading='nearest'
-            )
-            plt.title("Segmentação por Onset (Ataque) + Classificação Likelihood")
-            plt.colorbar(label='Energia')
+            plt.title("Beat Tracking com Detecção de Acordes (Inércia Temporal)")
             plt.xlabel("Tempo (s)")
+            plt.ylabel("Acorde")
+            
+            # Plot simples dos acordes
+            for acorde_info in acordes_consolidados:
+                plt.axvline(x=acorde_info['tempo_inicio'], color='gray', linestyle='--', alpha=0.3)
+            
             plt.tight_layout()
             plt.show()
 
         return resultado
 
     except Exception as e:
+        logger.error(f"Erro ao processar áudio: {e}", exc_info=True)
         return {
             "sucesso": False,
             "erro": str(e),
-            "arquivo": audio_path.split('/')[-1].split('\\')[-1] if isinstance(audio_path, str) else "arquivo"
+            "arquivo": os.path.basename(audio_path) if isinstance(audio_path, str) else "arquivo"
         }
 
 # ==========================================
-# 3. FUNÇÃO PARA RETORNAR JSON STRING
+# 4. FUNÇÃO PARA RETORNAR JSON STRING
 # ==========================================
 def processar_audio_json(audio_path: str, visualizar: bool = False) -> str:
     """
     Processa um arquivo de áudio e retorna as cifras detectadas em formato JSON string.
+    Usa beat tracking com inércia temporal para melhor estabilidade.
     
     Args:
         audio_path: Caminho para o arquivo de áudio (.mp3, .wav, etc)
@@ -264,8 +294,9 @@ def processar_audio_json(audio_path: str, visualizar: bool = False) -> str:
     resultado = processar_audio(audio_path, visualizar)
     return json.dumps(resultado, indent=2, ensure_ascii=False)
 
+
 # ==========================================
-# AREA DE TESTE
+# 5. ÁREA DE TESTE
 # ==========================================
 if __name__ == "__main__":
     # Exemplo de uso
