@@ -53,7 +53,8 @@ class AudioProcessingService:
     def processar_audio(file_path: str) -> Dict:
         """Processa um arquivo local com o classificador central."""
         try:
-            raw_result = chord_classifier.processar_audio(file_path)
+            # Usa beat tracking por padrão (mais rápido)
+            raw_result = chord_classifier.processar_audio(file_path, visualizar=False, metodo='beat')
             return AudioProcessingService._normalize_result(raw_result)
         except Exception as exc:
             logger.error(f"Erro ao processar arquivo local: {exc}")

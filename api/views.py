@@ -143,13 +143,14 @@ class AudioFileViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_202_ACCEPTED)
             
         except Exception as e:
-            logger.error(f"Erro ao enfileirar task: {e}")
-            job.status = 'failed'
-            job.error_message = f'Erro ao iniciar processamento: {str(e)}'
-            job.save()
+            logger.error(f"Erro ao enfileirar task: {e}", exc_info=True)
+            if job:
+                job.status = 'failed'
+                job.error_message = f'Erro ao iniciar processamento: {str(e)}'
+                job.save()
             
             return Response(
-                {'error': 'Erro ao iniciar processamento'},
+                {'error': f'Erro ao iniciar processamento: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

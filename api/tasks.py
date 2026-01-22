@@ -83,7 +83,8 @@ def processar_audio_async(self, audio_file_id: int, file_url: str):
         
         # Processa áudio
         logger.info(f"Processando áudio do arquivo: {tmp_path}")
-        processing_result = chord_classifier.processar_audio(tmp_path)
+        # Usa beat tracking por padrão (mais rápido e estável)
+        processing_result = chord_classifier.processar_audio(tmp_path, visualizar=False, metodo='beat')
         
         if not processing_result.get('sucesso', False):
             error_msg = processing_result.get('erro', 'Erro desconhecido')

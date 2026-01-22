@@ -8,14 +8,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Imports para visualização (apenas em dev)
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-except ImportError:
-    plt = None
-    mpatches = None
-
 # Configurações de otimização de memória
 LIBROSA_CACHE_ENABLED = False  # Desabilita cache de librosa
 MAX_AUDIO_DURATION = 300  # 5 minutos max
@@ -338,7 +330,14 @@ def comparar_metodos(audio_path: str) -> Dict:
             print(f"{metodo:<20} | {times[metodo]:>10.4f}s | {len(resultados[metodo]):>10}")
         
         # --- VISUALIZAÇÃO GANTT (se matplotlib disponível) ---
-        if plt is not None and mpatches is not None:
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.patches as mpatches
+            has_matplotlib = True
+        except ImportError:
+            has_matplotlib = False
+        
+        if has_matplotlib:
             print("\n📊 Gerando gráfico de comparação...")
             
             fig, ax = plt.subplots(figsize=(16, 7))
@@ -518,17 +517,24 @@ def processar_audio(audio_path: str, visualizar: bool = False, metodo: str = 'be
         }
 
         # E. VISUALIZAÇÃO (OPCIONAL)
-        if visualizar and plt is not None:
-            plt.figure(figsize=(14, 6))
-            plt.title(f"Detecção de Acordes - {nome_metodo}")
-            plt.xlabel("Tempo (s)")
-            plt.ylabel("Acorde")
+        if visualizar:
+            try:
+                import matplotlib.pyplot as plt
+                has_matplotlib = True
+            except ImportError:
+                has_matplotlib = False
             
-            for acorde_info in acordes_consolidados:
-                plt.axvline(x=acorde_info['tempo_inicio'], color='gray', linestyle='--', alpha=0.3)
-            
-            plt.tight_layout()
-            plt.show()
+            if has_matplotlib:
+                plt.figure(figsize=(14, 6))
+                plt.title(f"Detecção de Acordes - {nome_metodo}")
+                plt.xlabel("Tempo (s)")
+                plt.ylabel("Acorde")
+                
+                for acorde_info in acordes_consolidados:
+                    plt.axvline(x=acorde_info['tempo_inicio'], color='gray', linestyle='--', alpha=0.3)
+                
+                plt.tight_layout()
+                plt.show()
 
         return resultado
 
