@@ -49,9 +49,11 @@ _database_url = os.environ.get('DATABASE_URL')
 if _database_url:
     try:
         import dj_database_url
+        # Supabase URL vem como postgresql://user:password@host:port/database
+        # dj_database_url.parse() não requer URL encoding
         DATABASES = {
-            'default': dj_database_url.parse(
-                _database_url,
+            'default': dj_database_url.config(
+                default=_database_url,
                 conn_max_age=600,
                 ssl_require=True,
             )

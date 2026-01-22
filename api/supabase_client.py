@@ -198,24 +198,53 @@ class SupabaseClient:
 
     def verify_user_token(self, token: str):
         """
-        Verifica token JWT do Supabase Auth
+        Verifica token JWT do Supabase Auth.
+        
+        Fluxo esperado:
+        1. Cliente faz login no Supabase Auth
+        2. Supabase retorna token JWT com user.id, user.email, etc
+        3. Cliente envia token no header Authorization: Bearer {token}
+        4. Middleware chama este método
+        5. Se válido: retorna user_response.user com dados
         
         Args:
-            token: Token JWT do usuário
+            token: Token JWT do usuário (bearer token sem "Bearer " prefix)
         
         Returns:
-            objeto com atributo user contendo dados do usuário se válido
+            Wrapper object com atributo .user contendo dados do usuário Supabase
+            
+        Raises:
+            ValueError: Se token inválido ou Supabase client não configurado
         """
+        if not self._client:
+            logger.error("Supabase client não configurado; não é possível verificar token")
+            raise ValueError("Supabase client não configurado")
+        
         try:
+            # Chama Supabase Auth para verificar o token JWT
             user_response = self._client.auth.get_user(token)
-            # Cria objeto com estrutura esperada pelo middleware
+            
+            # user_response é um User object com atributos:
+            # - id: UUID único do usuário
+            # - email: email do usuário
+            # - email_confirmed_at: quando confirmou email
+            # - user_metadata: dados customizados (name, etc)
+            # - app_metadata: dados da app
+            # - created_at: quando criou conta
+            
+            # Wrapper para compatibilidade com middleware
             class UserWrapper:
                 def __init__(self, user_data):
                     self.user = user_data
-            return UserWrapper(user_response.user)
+            
+            logger.info(f"Token verificado com sucesso para user_id={user_response.id}")
+            return UserWrapper(user_response)
+            
         except Exception as e:
-            logger.error(f"Erro ao verificar token: {str(e)}")
-            raise ValueError(f"Token inválido: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"Erro ao verificar token JWT: {error_msg}")
+            raise ValueError(f"Token inválido: {error_msg}")
+
 
     def create_audio_file(self, audio_data: dict) -> dict:
         """
