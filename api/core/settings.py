@@ -130,23 +130,36 @@ SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'audio-files
 # Audio Processing Settings
 AUDIO_MAX_SIZE_MB = int(os.environ.get('AUDIO_MAX_SIZE_MB', 50))
 
-# ===== CELERY CONFIGURATION =====
+# ===== CELERY CONFIGURATION (OTIMIZADO PARA RENDER FREE TIER 512MB) =====
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 
-# Celery Task Settings
-CELERY_TASK_SOFT_TIME_LIMIT = 600  # 10 minutos
-CELERY_TASK_TIME_LIMIT = 900  # 15 minutos
+# Celery Task Settings - Limites agressivos para processamento de áudio
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get('CELERYD_TASK_SOFT_TIME_LIMIT', 300))  # 5 min
+CELERY_TASK_TIME_LIMIT = int(os.environ.get('CELERYD_TASK_TIME_LIMIT', 360))  # 6 min
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_ACKS_LATE = True
-CELERY_WORKER_PREFETCH_MULTIPLIER = 1
-CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000  # Reinicia worker para limpar memória
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Pega 1 task por vez
+CELERY_WORKER_MAX_TASKS_PER_CHILD = int(os.environ.get('CELERYD_MAX_TASKS_PER_CHILD', 10))  # Reinicia a cada 10 tasks
+
+# Celery Worker Settings - Otimizações de memória
+CELERYD_POOL = 'solo'  # Solo pool = menos memória que prefork
+CELERYD_MAX_MEMORY_PER_CHILD = 400000  # 400MB max (deixa margem no Free tier)
+CELERYD_MAX_TASKS_PER_CHILD = 10
 
 # Celery Result Settings
 CELERY_RESULT_EXPIRES = 3600  # 1 hora
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
+
+# Celery Broker Optimization
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    'visibility_timeout': 3600,  # 1 hora
+    'max_connections': 2,  # Limita conexões Redis
+}
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Enable Celery in production
 if not DEBUG:
