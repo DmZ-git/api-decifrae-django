@@ -16,7 +16,13 @@ services:
     env: python
     pythonVersion: 3.13
     buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
-    startCommand: celery -A api worker -l info --concurrency=1 --max-tasks-per-child=100
+    # Otimizações críticas para memória:
+    # --concurrency=1: Apenas 1 worker por vez (evita múltiplos processos de áudio)
+    # --max-tasks-per-child=10: Reinicia após 10 tarefas (libera memória acumulada)
+    # --max-memory-per-child=400000: Reinicia se usar mais de 400MB (Free tier = 512MB)
+    # -O fair: Distribui tarefas de forma justa
+    # --without-gossip --without-mingle --without-heartbeat: Reduz overhead
+    startCommand: celery -A api worker -l info --concurrency=1 --max-tasks-per-child=10 --max-memory-per-child=400000 -O fair --without-gossip --without-mingle --without-heartbeat
     envVars:
       - key: CELERY_BROKER_URL
         fromDatabase:
@@ -26,6 +32,12 @@ services:
         fromDatabase:
           name: redis-cache
           property: connectionString
+      - key: CELERYD_MAX_TASKS_PER_CHILD
+        value: "10"
+      - key: CELERYD_TASK_SOFT_TIME_LIMIT
+        value: "300"  # 5 minutos
+      - key: CELERYD_TASK_TIME_LIMIT
+        value: "360"  # 6 minutos (hard limit)
 
 databases:
   - name: redis-cache

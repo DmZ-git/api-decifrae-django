@@ -4,8 +4,8 @@ Tasks assíncronas para processamento de áudio
 import logging
 import os
 import tempfile
+import gc
 from celery import shared_task
-from django.core.cache import cache
 import requests
 
 from api.utils import chord_classifier
@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
     bind=True,
     max_retries=3,
     default_retry_delay=60,  # Retry após 1 minuto
+    soft_time_limit=300,  # 5 minutos soft limit
+    time_limit=360,  # 6 minutos hard limit
+    acks_late=True,  # Confirma apenas após completar
+    reject_on_worker_lost=True,  # Rejeita se worker morrer
 )
 def processar_audio_async(self, audio_file_id: int, file_url: str):
     """
@@ -49,16 +53,29 @@ def processar_audio_async(self, audio_file_id: int, file_url: str):
             if content_length and int(content_length) > 50 * 1024 * 1024:  # 50MB
                 raise ValueError("Arquivo muito grande (>50MB)")
             
-            # Salva em arquivo temporário
+            # Salva em arquivo temporário com streaming (não carrega tudo na memória)
             suffix = os.path.splitext(file_url)[1] or '.mp3'
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                for chunk in response.iter_content(chunk_size=8192):
+                # Download em chunks menores (4KB ao invés de 8KB)
+                # e com limite de tamanho total
+                total_downloaded = 0
+                max_size = 50 * 1024 * 1024  # 50MB
+                
+                for chunk in response.iter_content(chunk_size=4096):
                     if chunk:
+                        total_downloaded += len(chunk)
+                        if total_downloaded > max_size:
+                            raise ValueError("Arquivo excedeu limite durante download")
                         tmp.write(chunk)
+                        tmp.flush()  # Force flush para liberar buffer
                 tmp_path = tmp.name
             
             job.progress = 50
             job.save()
+            
+            # Força liberação de memória após download
+            import gc
+            gc.collect()
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Erro ao baixar arquivo: {e}")
@@ -116,6 +133,10 @@ def processar_audio_async(self, audio_file_id: int, file_url: str):
         # Atualiza AudioFile
         audio_file.status = 'completed'
         audio_file.save()
+        
+        # Libera memória após processamento
+        import gc
+        gc.collect()
         
         logger.info(f"Processamento concluído para áudio {audio_file_id}")
         

@@ -103,7 +103,7 @@ def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
         # Reduz amostragem para 22050 Hz (padrão librosa) - adequado para acordes
         y, sr = librosa.load(audio_path, sr=22050, mono=True)
         
-        # Validação de duração
+        # Validação de duração (ANTES de deletar y)
         duracao_total = float(librosa.get_duration(y=y, sr=sr))
         if duracao_total > MAX_AUDIO_DURATION:
             return {
@@ -118,6 +118,8 @@ def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
 
         # Libera memória do áudio original
         del y
+        import gc
+        gc.collect()
         
         # C. CQT com bins reduzidos para economizar memória (de 36 para 12)
         # Ainda mantém boa qualidade para detecção de acordes
@@ -161,6 +163,10 @@ def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
         # H. Normaliza para limpar ruído de fundo
         chroma_sync = librosa.util.normalize(chroma_sync, axis=0)
 
+        # Libera memória adicional
+        import gc
+        gc.collect()
+
         # ==========================================
         # 3. GERAÇÃO DA TIMELINE
         # ==========================================
@@ -196,8 +202,7 @@ def processar_audio(audio_path: str, visualizar: bool = False) -> Dict:
             "duracao": round(tempos_limite[-1] - inicio_tempo_segmento, 2)
         })
 
-        # Calcula a duração total
-        duracao_total = float(librosa.get_duration(y=y, sr=sr))
+        # duracao_total já foi calculada no início (linha ~109)
 
         # Monta o resultado final
         resultado = {
