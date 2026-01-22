@@ -42,7 +42,7 @@ def classificar_segmento(chroma, acorde_anterior=""):
 # ===============================
 # PROCESSAMENTO PRINCIPAL
 # ===============================
-def detectar_acordes(audio_path: str) -> dict:
+def detectar_acordes(audio_path) -> dict:
     y, sr = librosa.load(audio_path, sr=11025, mono=True)
     y_h, y_p = librosa.effects.hpss(y, margin=3.0)
 
@@ -87,6 +87,6 @@ def detectar_acordes(audio_path: str) -> dict:
     }
 
 
-def detectar_acordes_json(audio_path: str) -> str:
+def detectar_acordes_json(audio_path) -> str:
     resultado = detectar_acordes(audio_path)
     return json.dumps(resultado, indent=2, ensure_ascii=False)
