@@ -84,10 +84,10 @@ def processar_audio_async(self, audio_file_id: int, file_url: str):
         # Processa áudio
         logger.info(f"Processando áudio do arquivo: {tmp_path}")
         # Usa beat tracking por padrão (mais rápido e estável)
-        processing_result = chord_classifier.processar_audio(tmp_path, visualizar=False, metodo='beat')
+        result = chord_classifier.detectar_acordes(tmp_path)
         
-        if not processing_result.get('sucesso', False):
-            error_msg = processing_result.get('erro', 'Erro desconhecido')
+        if not result.get('sucesso', False):
+            error_msg = result.get('erro', 'Erro desconhecido')
             logger.error(f"Erro ao processar áudio: {error_msg}")
             job.status = 'failed'
             job.progress = 100
@@ -104,30 +104,29 @@ def processar_audio_async(self, audio_file_id: int, file_url: str):
             'tempo_inicio': a.get('tempo_inicio'),
             'duracao': a.get('duracao'),
             'confianca': a.get('confianca'),
-        } for a in processing_result.get('acordes', [])]
+        } for a in result.get('acordes', [])]
         
         metadata = {
-            'duracao_total': processing_result.get('duracao_total'),
-            'taxa_amostragem': processing_result.get('taxa_amostragem'),
-            'total_acordes': processing_result.get('quantidade_acordes'),
+            'duracao_total': result.get('duracao_total'),
+            'taxa_amostragem': result.get('taxa_amostragem'),
+            'total_acordes': result.get('quantidade_acordes'),
         }
         
         # Cria Transcription
         transcription = Transcription.objects.create(
-            audio_file=audio_file,
-            user=audio_file.user,
-            title=f"{audio_file.title} - Cifra",
-            chords=chords_data,
-            confidence=0.85,
+        audio_file=audio_file,
+        user=audio_file.user,
+        title=f"{audio_file.title} - Cifra",
+        chords=result["timestamps"],
+        confidence=0.85,
         )
         
         # Atualiza job
         job.status = 'completed'
         job.progress = 100
         job.result = {
-            'transcription_id': transcription.id,
-            'total_acordes': len(chords_data),
-            'metadata': metadata,
+            "chords": result["chords"],
+            "total": len(result["timestamps"]),
         }
         job.save()
         
