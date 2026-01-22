@@ -5,8 +5,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from .models import AudioFile, Transcription, ProcessingJob
-from .serializers import AudioFileSerializer, TranscriptionSerializer, ProcessingJobSerializer
+from django.conf import settings
+from .models import AudioFile, Transcription, ProcessingJob, Playlist
+from .serializers import AudioFileSerializer, TranscriptionSerializer, ProcessingJobSerializer, PlaylistSerializer
 from .supabase_client import SupabaseClient, supabase_client
 from .services.audio_processing_client import AudioProcessingService
 from .tasks import processar_audio_async  # Importa task assíncrona
@@ -135,6 +136,19 @@ class AudioFileViewSet(viewsets.ModelViewSet):
             
             logger.info(f"Task Celery enfileirada: {task.id}")
             
+            # Se estiver em modo eager (desenvolvimento), a task roda síncrona e já temos resultado
+            if getattr(settings, 'CELERY_ALWAYS_EAGER', False):
+                result = task.get() if hasattr(task, 'get') else None
+                # Tenta resgatar transcription gerada
+                transcription = Transcription.objects.filter(audio_file=audio_file).order_by('-created_at').first()
+                if transcription:
+                    serialized = TranscriptionSerializer(transcription).data
+                    return Response(serialized, status=status.HTTP_200_OK)
+                return Response(result or {
+                    'success': True,
+                    'message': 'Processamento concluído',
+                }, status=status.HTTP_200_OK)
+            
             return Response({
                 'success': True,
                 'message': 'Processamento iniciado',
@@ -194,3 +208,46 @@ class ProcessingJobViewSet(viewsets.ModelViewSet):
             'result': job.result,
             'error_message': job.error_message
         })
+
+
+class PlaylistViewSet(viewsets.ModelViewSet):
+    queryset = Playlist.objects.all()
+    serializer_class = PlaylistSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        if self.request.user.is_authenticated:
+            return Playlist.objects.filter(user=self.request.user)
+        return Playlist.objects.all()
+
+    def perform_create(self, serializer):
+        if self.request.user.is_authenticated:
+            serializer.save(user=self.request.user)
+        else:
+            serializer.save(user=None)
+
+    @action(detail=True, methods=['post'])
+    def add_transcription(self, request, pk=None):
+        playlist = self.get_object()
+        transcription_id = request.data.get('transcription_id')
+        if not transcription_id:
+            return Response({'error': 'transcription_id é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            transcription = Transcription.objects.get(id=transcription_id)
+            playlist.transcriptions.add(transcription)
+            return Response({'success': True, 'message': 'Transcrição adicionada à playlist'})
+        except Transcription.DoesNotExist:
+            return Response({'error': 'Transcrição não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['post'])
+    def remove_transcription(self, request, pk=None):
+        playlist = self.get_object()
+        transcription_id = request.data.get('transcription_id')
+        if not transcription_id:
+            return Response({'error': 'transcription_id é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            transcription = Transcription.objects.get(id=transcription_id)
+            playlist.transcriptions.remove(transcription)
+            return Response({'success': True, 'message': 'Transcrição removida da playlist'})
+        except Transcription.DoesNotExist:
+            return Response({'error': 'Transcrição não encontrada'}, status=status.HTTP_404_NOT_FOUND)
