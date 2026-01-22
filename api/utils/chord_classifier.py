@@ -113,12 +113,13 @@ def run_onset_detection(y, sr, y_harmonic, y_percussive):
         units='frames'
     )
     
-    # 2. Processar Chroma
-    chroma = librosa.feature.chroma_cqt(
+    # 2. Processar Chroma (com margem de segurança para Nyquist)
+    # Usa chroma_stft ao invés de chroma_cqt para evitar problemas de Nyquist
+    chroma = librosa.feature.chroma_stft(
         y=y_harmonic, 
         sr=sr, 
-        bins_per_octave=12,
-        fmin=65
+        n_chroma=12,
+        n_fft=2048
     )
     
     # 3. Sincronizar Chroma com Onsets
@@ -167,12 +168,13 @@ def run_agglomerative(y, sr, y_harmonic):
     Returns:
         Tupla (segmentos, dummy_tempo)
     """
-    # 1. Processar Chroma
-    chroma = librosa.feature.chroma_cqt(
+    # 1. Processar Chroma (com margem de segurança para Nyquist)
+    # Usa chroma_stft ao invés de chroma_cqt para evitar problemas de Nyquist
+    chroma = librosa.feature.chroma_stft(
         y=y_harmonic, 
         sr=sr, 
-        bins_per_octave=12,
-        fmin=65
+        n_chroma=12,
+        n_fft=2048
     )
     
     # Stack memory para contexto temporal
@@ -234,11 +236,12 @@ def run_beat_tracking(y, sr, y_harmonic, y_percussive):
     tempo, beats = librosa.beat.beat_track(y=y_percussive, sr=sr)
     
     # 2. Processar Chroma (CQT otimizado)
-    chroma = librosa.feature.chroma_cqt(
+    # Usa chroma_stft ao invés de chroma_cqt para evitar problemas de Nyquist
+    chroma = librosa.feature.chroma_stft(
         y=y_harmonic, 
         sr=sr, 
-        bins_per_octave=12,  # Otimizado para memória
-        fmin=65
+        n_chroma=12,
+        n_fft=2048
     )
     
     # 3. Sincronizar Chroma com Beats
