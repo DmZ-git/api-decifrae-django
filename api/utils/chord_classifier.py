@@ -90,3 +90,7 @@ def detectar_acordes(audio_path) -> dict:
 def detectar_acordes_json(audio_path) -> str:
     resultado = detectar_acordes(audio_path)
     return json.dumps(resultado, indent=2, ensure_ascii=False)
+
+
+def processar_audio(audio_path):
+    return detectar_acordes(audio_path)
