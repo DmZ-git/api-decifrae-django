@@ -33,13 +33,21 @@ services:
           name: redis-cache
           property: connectionString
       - key: CELERYD_MAX_TASKS_PER_CHILD
+      envVars:
+        - key: CELERYD_MAX_TASKS_PER_CHILD
         value: "10"
       - key: CELERYD_TASK_SOFT_TIME_LIMIT
         value: "300"  # 5 minutos
       - key: CELERYD_TASK_TIME_LIMIT
         value: "360"  # 6 minutos (hard limit)
 
-databases:
-  - name: redis-cache
-    engine: redis
-    plan: free
+
+  # Redis agora é OPCIONAL
+  # Se Redis não estiver disponível, o Celery faz fallback automático para database backend
+  # Consulte api/core/settings.py para a lógica de fallback
+  # 
+  # Para adicionar Redis em produção, descomente:
+  # databases:
+  #   - name: redis-cache
+  #     engine: redis
+  #     plan: free

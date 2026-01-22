@@ -145,7 +145,56 @@ else:
     CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
     CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
     CELERY_ALWAYS_EAGER = False
+    
+    # Produção: preferir Redis remoto, com fallback para DB
+    broker_url = os.environ.get('CELERY_BROKER_URL', '')
+    
+    if broker_url:
+        # Usar Redis remoto (Render)
+        CELERY_BROKER_URL = broker_url
+        CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', broker_url)
+        CELERY_ALWAYS_EAGER = False
+    else:
+        # Fallback: usar banco de dados como broker (mais lento mas funciona sem Redis)
+        CELERY_BROKER_URL = 'sqla+' + os.environ.get('DATABASE_URL', 'sqlite:///db.sqlite3')
+        CELERY_RESULT_BACKEND = 'db+' + os.environ.get('DATABASE_URL', 'sqlite:///db.sqlite3')
+        CELERY_ALWAYS_EAGER = False
 
+# ===== CELERY CONFIGURATION (OTIMIZADO PARA RENDER FREE TIER 512MB) =====
+# Estratégia:
+# 1. DEBUG=True: EAGER mode (síncrono, sem Redis - desenvolvimento local)
+# 2. DEBUG=False + CELERY_BROKER_URL: Redis remoto (Render com Redis)
+# 3. DEBUG=False + sem CELERY_BROKER_URL: Database backend como broker (Render sem Redis)
+
+if DEBUG:
+    # Desenvolvimento: processar tasks sincronamente (sem Redis)
+    CELERY_ALWAYS_EAGER = True
+    CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
+    CELERY_BROKER_URL = 'memory://'
+    CELERY_RESULT_BACKEND = 'cache+memory://'
+else:
+    # Produção: preferir Redis remoto, com fallback para DB backend
+    broker_url = os.environ.get('CELERY_BROKER_URL', '')
+    
+    if broker_url:
+        # Usar Redis remoto (Render com serviço Redis)
+        CELERY_BROKER_URL = broker_url
+        CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', broker_url)
+        CELERY_ALWAYS_EAGER = False
+    else:
+        # Fallback: usar banco de dados como broker
+        # Isso funciona mesmo sem Redis, mas é mais lento
+        try:
+            db_url = os.environ.get('DATABASE_URL', 'sqlite:///db.sqlite3')
+            CELERY_BROKER_URL = 'sqla+' + db_url
+            CELERY_RESULT_BACKEND = 'db+' + db_url
+            CELERY_ALWAYS_EAGER = False
+        except Exception:
+            # Se ainda falhar, usar EAGER (sincronamente)
+            CELERY_ALWAYS_EAGER = True
+            CELERY_BROKER_URL = 'memory://'
+            CELERY_RESULT_BACKEND = 'cache+memory://'
+# Task defaults - Limites agressivos para processamento de áudio
 # Task defaults - Limites agressivos para processamento de áudio
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get('CELERYD_TASK_SOFT_TIME_LIMIT', 300))  # 5 min
 CELERY_TASK_TIME_LIMIT = int(os.environ.get('CELERYD_TASK_TIME_LIMIT', 360))  # 6 min
@@ -166,19 +215,14 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 
 # Broker Optimization
+# Broker Optimization
 CELERY_BROKER_TRANSPORT_OPTIONS = {
     'visibility_timeout': 3600,  # 1 hora
-    'max_connections': 2,  # Limita conexões Redis
+    'max_connections': 2,  # Limita conexões
 }
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
-# Enable Celery in production
-if not DEBUG:
-    CELERY_ALWAYS_EAGER = False
-else:
-    # In development, optionally run tasks synchronously
-    CELERY_ALWAYS_EAGER = os.environ.get('CELERY_ALWAYS_EAGER', 'False').lower() in ('true', '1')
 
 # ===== MEMORY OPTIMIZATION =====
 # Desabilita cache de librosa para economizar memória
