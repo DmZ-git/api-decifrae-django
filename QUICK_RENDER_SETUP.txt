@@ -1,0 +1,118 @@
+# 🚀 RENDER SETUP - COPIA E COLA
+
+## ⚡ Seu DATABASE_URL (com sslmode obrigatório):
+
+```
+postgresql://postgres:[YOUR_DB_PASSWORD]@db.jttksxgmlaztmeiomtfo.supabase.co:5432/postgres?sslmode=require
+```
+
+---
+
+## 📋 Variáveis para Copiar e Colar no Render Dashboard
+
+**Acesse:** https://dashboard.render.com → Seu Web Service → Settings → Environment
+
+Copie **EXATAMENTE** como está abaixo (uma linha por variável):
+
+### OBRIGATÓRIO:
+
+```
+DATABASE_URL
+postgresql://postgres:[YOUR_DB_PASSWORD]@db.jttksxgmlaztmeiomtfo.supabase.co:5432/postgres?sslmode=require
+
+SECRET_KEY
+t_key())"                                                                                                                                                      g$^ke&ubmhxa*bp-m7cw!k2dkf6q9_hg3&oxa)j2!hf@#t=_gh
+
+DEBUG
+False
+
+ALLOWED_HOSTS
+*.onrender.com
+
+SUPABASE_URL
+https://jttksxgmlaztmeiomtfo.supabase.co
+
+SUPABASE_STORAGE_BUCKET
+audio-files
+
+FRONTEND_URL
+https://front-decifrae.vercel.app
+
+CORS_ALLOWED_ORIGINS
+https://front-decifrae.vercel.app
+```
+
+### FALTA CONSEGUIR (do Supabase):
+
+Vá para: https://app.supabase.com → Seu Projeto → Settings → API
+
+```
+SUPABASE_SERVICE_KEY
+[COPIAR: Service Role Key]
+
+SUPABASE_ANON_KEY
+[COPIAR: Anon Key]
+```
+
+---
+
+## ✅ Checklist de Configuração
+
+- [ ] Copiei DATABASE_URL com `?sslmode=require`
+- [ ] Copiei SECRET_KEY
+- [ ] Copiei DEBUG = False
+- [ ] Copiei SUPABASE_* keys do Supabase
+- [ ] Copiei CORS_ALLOWED_ORIGINS
+- [ ] Cliquei "Save" no Render
+- [ ] Fiz "Manual Deploy"
+
+---
+
+## 🧪 Após Deploy
+
+Teste no terminal:
+
+```bash
+curl https://api-decifrae.onrender.com/api/
+```
+
+Resposta esperada (200 OK com JSON):
+```json
+{
+  "audio": "https://api-decifrae.onrender.com/api/audio/",
+  "transcriptions": "https://api-decifrae.onrender.com/api/transcriptions/",
+  "playlists": "https://api-decifrae.onrender.com/api/playlists/"
+}
+```
+
+✅ = API funcionando!  
+❌ = Verifique logs no Render
+
+---
+
+## 📞 Se der erro:
+
+**"password authentication failed"**
+→ Senha em DATABASE_URL está errada
+
+**"FATAL: database does not exist"**
+→ Deve ser "postgres", não outro banco
+
+**"ImproperlyConfigured: DATABASE_URL"**
+→ Falta copiar DATABASE_URL no Render
+
+**"CORS policy blocked"**
+→ Frontend não consegue acessar API  
+→ Verifique CORS_ALLOWED_ORIGINS = https://front-decifrae.vercel.app (sem /api no final)
+
+---
+
+## 🎯 Resumo Rápido
+
+1. ✅ DATABASE_URL com ?sslmode=require
+2. ✅ SUPABASE_* do Supabase Settings > API
+3. ✅ SECRET_KEY + DEBUG + ALLOWED_HOSTS
+4. ✅ CORS_ALLOWED_ORIGINS = front-decifrae.vercel.app
+5. ✅ Save + Deploy
+
+**Depois:** Teste com `curl` acima!
